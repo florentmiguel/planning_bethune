@@ -61,6 +61,8 @@ body.test #testbar{display:block}
 .modal .card{width:100%;max-width:560px;margin:0;border-radius:20px 20px 0 0;padding-bottom:calc(env(safe-area-inset-bottom) + 16px)}
 .row2{display:flex;gap:10px;margin-top:14px}.row2 button{flex:1;padding:14px;border-radius:14px;border:1px solid var(--line);background:var(--bg);color:var(--ink);font-size:16px;font-weight:600}
 .row2 button.pri{background:var(--acc);color:#fff;border:0}
+.row2 button:disabled{opacity:.6}
+#lmsg{color:var(--warn);text-align:left}
 </style>
 </head>
 <body>
@@ -155,14 +157,33 @@ function applyWho() {
   $("exp").classList.toggle("hide", !seesAll());
   renderAll();
 }
+// Adresse de base Supabase nettoyée : accepte aussi une URL collée avec /rest/v1, un / final
+// ou l'adresse du tableau de bord (supabase.com/dashboard/project/<ref>)
+const API_KEY = String(CFG.supabaseAnonKey || CFG.supabaseKey || "").trim();
+const API_URL = (() => {
+  const u = String(CFG.supabaseUrl || "").trim();
+  const m = /supabase\.com\/dashboard\/project\/([a-z0-9]+)/i.exec(u);
+  if (m) return "https://" + m[1] + ".supabase.co";
+  try { return new URL(u).origin; } catch (e) { return u.replace(/\/+$/, ""); }
+})();
 async function rpc(fn, args) {
-  const r = await fetch(CFG.supabaseUrl.replace(/\/$/, "") + "/rest/v1/rpc/" + fn, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", apikey: CFG.supabaseAnonKey, Authorization: "Bearer " + CFG.supabaseAnonKey },
-    body: JSON.stringify(Object.assign({ p_code: CODE }, args))
-  });
+  const headers = { "Content-Type": "application/json", apikey: API_KEY };
+  // ancienne clé « anon » (JWT eyJ…) : aussi en Authorization ; nouvelle clé sb_publishable_… : apikey seul
+  if (/^eyJ/.test(API_KEY)) headers.Authorization = "Bearer " + API_KEY;
+  let r;
+  try { r = await fetch(API_URL + "/rest/v1/rpc/" + fn, { method: "POST", headers, body: JSON.stringify(Object.assign({ p_code: CODE }, args)) }); }
+  catch (x) { const e = new Error("réseau"); e.net = true; throw e; }
   if (!r.ok) { const t = await r.text(); const e = new Error(t); e.status = r.status; e.badCode = /code invalide/i.test(t); throw e; }
   return r.status === 204 ? null : r.json();
+}
+// Message clair selon la cause
+function explain(e) {
+  if (e.badCode) return "Code incorrect.";
+  const t = e.message || "";
+  if (e.net) return "Serveur injoignable à l'adresse « " + API_URL + " ». Vérifie supabaseUrl dans config.js (forme https://xxxx.supabase.co) et que le projet Supabase n'est pas en pause.";
+  if (e.status === 401 || e.status === 403 || /api key|apikey|JWT/i.test(t)) return "Clé refusée par Supabase (" + e.status + "). Vérifie supabaseAnonKey dans config.js : clé « publishable » (sb_publishable_…) ou « anon » — jamais la clé secrète.";
+  if (e.status === 404 || /PGRST202|Could not find the function/i.test(t)) return "Base pas encore créée : lance supabase/schema.sql dans Supabase (SQL Editor > Run), puis réessaie.";
+  return "Erreur " + (e.status || "") + " : " + t.slice(0, 160);
 }
 let dirty = {}; try { dirty = JSON.parse(localStorage.getItem("ptg-dirty") || "{}"); } catch (e) {}
 const saveDirty = () => { try { localStorage.setItem("ptg-dirty", JSON.stringify(dirty)); } catch (e) {} };
@@ -209,8 +230,12 @@ function askCode(bad) {
   $("login").classList.remove("hide");
   $("lmsg").textContent = bad ? "Code incorrect." : "";
 }
+$("lcode").addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); $("lok").click(); } });
 $("lok").onclick = async () => {
-  CODE = $("lcode").value.trim(); if (!CODE) return;
+  CODE = $("lcode").value.trim();
+  if (!CODE) { $("lmsg").textContent = "Saisis ton code."; return; }
+  const btn = $("lok"); if (btn.disabled) return;
+  btn.disabled = true; btn.textContent = "Vérification…"; $("lmsg").textContent = "";
   try {
     WHO = await rpc("ptg_me", {});
     // nouveau code sur ce téléphone : on repart d'un cache vide
@@ -218,7 +243,8 @@ $("lok").onclick = async () => {
     try { localStorage.setItem("ptg-code", CODE); localStorage.setItem("ptg-who", JSON.stringify(WHO)); localStorage.removeItem("ptg-me-set"); } catch (e) {}
     $("login").classList.add("hide"); saveLocal(); applyWho(); pull();
   }
-  catch (e) { $("lmsg").textContent = e.badCode ? "Code incorrect." : "Connexion impossible. Vérifie le réseau."; }
+  catch (e) { $("lmsg").textContent = explain(e); }
+  finally { btn.disabled = false; btn.textContent = "Valider"; }
 };
 
 function setSync(m, txt) {
