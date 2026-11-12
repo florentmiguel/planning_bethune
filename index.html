@@ -1,0 +1,376 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Planning Béthune</title>
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Planning">
+<meta name="theme-color" content="#1f6f4a">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg">
+<script src="config.js"></script>
+<script src="planning.js"></script>
+<script src="xlsx.js"></script>
+<style>
+:root{--bg:#f4f3ef;--card:#fff;--ink:#1c1c1a;--mut:#6f6d66;--line:#e3e1da;--acc:#1f6f4a;--acc2:#e7f2ec;--warn:#b4541a;--warn2:#fbeee4;--r:16px}
+@media (prefers-color-scheme:dark){:root{--bg:#141413;--card:#1f1e1c;--ink:#f1efe8;--mut:#a09d94;--line:#34322e;--acc:#4fb784;--acc2:#1d3328;--warn:#e88a4f;--warn2:#3a2a1f}}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
+.wrap{max-width:560px;margin:0 auto;padding:calc(env(safe-area-inset-top) + 12px) 16px calc(env(safe-area-inset-bottom) + 96px)}
+header h1{font-size:15px;font-weight:600;margin:0;color:var(--mut);letter-spacing:.02em;text-transform:uppercase}
+.sync{font-size:12px;color:var(--mut);display:flex;align-items:center;gap:6px;margin-top:2px}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--mut)}.dot.ok{background:var(--acc)}.dot.loc{background:var(--warn)}
+.chips{display:flex;gap:8px;margin:14px 0 6px}
+.chip{flex:1;border:1.5px solid var(--line);background:var(--card);color:var(--ink);border-radius:999px;padding:10px 6px;font-size:15px;font-weight:600}
+.chip.on{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+.card{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:16px;margin:12px 0}
+.clock{font-size:64px;font-weight:700;letter-spacing:-.03em;font-variant-numeric:tabular-nums;text-align:center;line-height:1;margin:8px 0 4px}
+.date{text-align:center;color:var(--mut);text-transform:capitalize}
+.big{display:block;width:100%;border:0;border-radius:20px;padding:22px;font-size:20px;font-weight:700;margin-top:16px;color:#fff;background:var(--acc)}
+.big.out{background:var(--warn)}.big:disabled{background:var(--line);color:var(--mut)}
+.big:active{transform:scale(.985)}
+.status{display:flex;justify-content:space-around;text-align:center;margin-top:14px}
+.status b{display:block;font-size:22px;font-variant-numeric:tabular-nums}.status span{font-size:12px;color:var(--mut);text-transform:uppercase;letter-spacing:.04em}
+.note{background:var(--warn2);color:var(--warn);border-radius:12px;padding:10px 12px;font-size:14px;margin-top:12px}
+.lnk{background:none;border:0;color:var(--acc);font-weight:600;font-size:15px;padding:8px 0}
+.wk h3{font-size:13px;color:var(--mut);text-transform:uppercase;letter-spacing:.04em;margin:18px 4px 6px;display:flex;justify-content:space-between}
+.day{display:grid;grid-template-columns:1fr auto;gap:8px 10px;align-items:center;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:12px;margin:6px 0}
+.day.today{border-color:var(--acc);box-shadow:0 0 0 1px var(--acc) inset}
+.day .lbl{font-weight:600;text-transform:capitalize}.day .tot{font-variant-numeric:tabular-nums;color:var(--mut);font-size:14px;text-align:right}
+.day .times{grid-column:1/-1;display:flex;gap:8px;align-items:center}
+.day input[type=time]{flex:1;min-width:0;font:inherit;font-size:17px;padding:8px;border:1px solid var(--line);border-radius:10px;background:var(--bg);color:var(--ink)}
+.sg{grid-column:1/-1;display:flex;align-items:center;gap:8px;font-size:13px;color:var(--mut)}
+.sg button{border:1px solid var(--line);background:var(--bg);color:var(--ink);border-radius:999px;padding:6px 12px;font-size:13px;font-weight:600}
+.sg button.on{background:var(--acc2);color:var(--acc);border-color:transparent}
+.clr{border:0;background:none;color:var(--mut);font-size:20px;padding:0 4px}
+table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums;font-size:14px}
+th,td{padding:8px 4px;text-align:right;border-bottom:1px solid var(--line)}th:first-child,td:first-child{text-align:left}
+th{font-size:12px;color:var(--mut);font-weight:600;text-transform:uppercase}
+tr.strong td{font-weight:700}
+nav{position:fixed;left:0;right:0;bottom:0;background:var(--card);border-top:1px solid var(--line);display:flex;padding:6px 8px calc(env(safe-area-inset-bottom) + 6px)}
+nav button{flex:1;border:0;background:none;color:var(--mut);font-size:12px;font-weight:600;padding:8px 0;display:flex;flex-direction:column;align-items:center;gap:3px}
+nav button svg{width:24px;height:24px}nav button.on{color:var(--acc)}
+.msg{text-align:center;font-size:14px;color:var(--mut);margin-top:10px;min-height:20px}
+.hide{display:none!important}
+body.ro .day input,body.ro .day .clr,body.ro .sg button{pointer-events:none;opacity:.55}
+#testbar{display:none;background:#fff3c4;color:#5c4400;border-radius:12px;padding:10px 12px;margin-top:10px;font-size:14px;line-height:2}
+body.test #testbar{display:block}
+#testbar select,#testbar button{font:inherit;font-size:14px;border:1px solid #d9c27a;background:#fffbe8;color:#5c4400;border-radius:8px;padding:3px 8px}
+.modal{position:fixed;inset:0;background:rgba(0,0,0,.4);display:flex;align-items:flex-end;justify-content:center;z-index:9}
+.modal .card{width:100%;max-width:560px;margin:0;border-radius:20px 20px 0 0;padding-bottom:calc(env(safe-area-inset-bottom) + 16px)}
+.row2{display:flex;gap:10px;margin-top:14px}.row2 button{flex:1;padding:14px;border-radius:14px;border:1px solid var(--line);background:var(--bg);color:var(--ink);font-size:16px;font-weight:600}
+.row2 button.pri{background:var(--acc);color:#fff;border:0}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1 id="ttl"></h1>
+    <div class="sync"><span class="dot" id="dot"></span><span id="synctxt">Connexion…</span></div>
+    <div class="sync" id="who" style="font-weight:600"></div>
+  </header>
+  <div id="testbar"><b>MODE TEST</b> — rien n'est enregistré. Jour simulé : <select id="tday" onchange="TEST_DAY=this.value;planBuilt=false;renderAll()"></select> <button onclick="TESTRECS={};recs=TESTRECS;renderAll()">Vider</button> <button onclick="setTest(false)">Quitter</button></div>
+  <div class="chips" id="chips"></div>
+
+  <section id="v-pointer">
+    <div class="card">
+      <div class="clock" id="clock">--:--</div>
+      <div class="date" id="today"></div>
+      <div class="status">
+        <div><b id="sIn">—</b><span>Arrivée</span></div>
+        <div><b id="sOut">—</b><span>Départ</span></div>
+        <div><b id="sTot">—</b><span>Durée</span></div>
+      </div>
+      <button class="big" id="btn">Pointer</button>
+      <div id="pnote"></div>
+    </div>
+    <div class="card">
+      <table id="mini"></table>
+    </div>
+  </section>
+
+  <section id="v-planning" class="hide"><div class="wk" id="weeks"></div></section>
+
+  <section id="v-export" class="hide">
+    <div class="card"><table id="sum"></table></div>
+    <button class="big" id="exp">Télécharger l'Excel complété</button>
+    <div class="msg" id="emsg">Le fichier garde la mise en forme, les formules et le tableau d'origine.</div>
+    <div style="text-align:center;margin-top:18px"><button class="lnk" id="logout">Changer de code / se déconnecter</button></div>
+  </section>
+</div>
+
+<nav>
+  <button data-v="pointer" class="on"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>Pointer</button>
+  <button data-v="planning"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>Planning</button>
+  <button data-v="export"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0l-4-4m4 4l4-4M4 17v3h16v-3"/></svg>Totaux & Excel</button>
+</nav>
+
+<div class="modal hide" id="login"><div class="card"><div style="font-size:18px;font-weight:700;margin-bottom:8px">Code d'accès</div><div style="color:var(--mut);font-size:14px">Saisis ton code personnel (demande-le à Florent). Il est mémorisé sur ce téléphone.</div><input id="lcode" type="password" autocomplete="current-password" style="width:100%;font:inherit;font-size:18px;padding:12px;margin-top:12px;border:1px solid var(--line);border-radius:12px;background:var(--bg);color:var(--ink)"><div class="msg" id="lmsg"></div><div class="row2"><button class="pri" id="lok">Valider</button></div></div></div>
+<div class="modal hide" id="modal"><div class="card"><div id="mtxt"></div><div class="row2"><button id="mno">Annuler</button><button class="pri" id="myes">Confirmer</button></div></div></div>
+
+<script>
+// ===== Interface =====
+const $ = id => document.getElementById(id);
+const P = META.people, DAYS = META.rows.filter(r => r.kind === "day");
+let planBuilt = false;
+let recs = {}, me = 0, mode = "loading";
+try { const s = localStorage.getItem("ptg-me"); if (s != null && P[+s]) me = +s; } catch (e) {}
+try { recs = JSON.parse(localStorage.getItem("ptg-recs") || "{}"); } catch (e) {}
+// ---- Mode test : données à part, jamais envoyées, date simulée ----
+let TEST = false, TEST_DAY = DAYS[0].iso, REAL = recs, TESTRECS = {};
+function NOW() { const n = new Date(); if (!TEST) return n; const [y, m, d] = TEST_DAY.split("-").map(Number); return new Date(y, m - 1, d, n.getHours(), n.getMinutes(), n.getSeconds()); }
+function setTest(on) {
+  TEST = on; recs = on ? TESTRECS : REAL; planBuilt = false;
+  document.body.classList.toggle("test", on);
+  if (on) $("tday").innerHTML = DAYS.map(d => '<option value="' + d.iso + '"' + (d.iso === TEST_DAY ? " selected" : "") + ">" + d.label.replace(/ \d{4}$/, "") + "</option>").join("");
+  renderAll();
+}
+
+const isoOf = d => d.getFullYear() + "-" + pad2(d.getMonth() + 1) + "-" + pad2(d.getDate());
+const hm = d => pad2(d.getHours()) + ":" + pad2(d.getMinutes());
+const ddmm = d => pad2(d.getDate()) + "/" + pad2(d.getMonth() + 1);
+const rowByIso = iso => DAYS.find(r => r.iso === iso);
+// semaines = jours entre deux lignes « TOTAL SEMAINE » (les totaux mensuels sont ignorés)
+const WEEKS = (() => { const w = []; let cur = []; for (const r of META.rows) { if (r.kind === "day") cur.push(r); else if (/SEMAINE/.test(r.label)) { w.push({ tot: r, days: cur }); cur = []; } } if (cur.length) w.push({ tot: null, days: cur }); return w; })();
+const weekOf = iso => WEEKS.find(w => w.days.some(d => d.iso === iso)) || WEEKS[0];
+const nice = l => l.replace("TOTAL ", "").toLowerCase().replace(/^./, c => c.toUpperCase());
+const rec = (iso, pi = me) => recs[recKey(iso, pi)] || {};
+
+function saveLocal() { if (TEST) return; try { localStorage.setItem("ptg-recs", JSON.stringify(REAL)); } catch (e) {} }
+// ---- Base Supabase (fonctions SQL protégées par le code d'accès) ----
+const CFG = window.POINTEUSE_CONFIG || {};
+let CODE = ""; try { CODE = localStorage.getItem("ptg-code") || ""; } catch (e) {}
+// Identité liée au code : { nom, role: admin | responsable | salarie, col: "B" | "F" | "J" | null }
+let WHO = null; try { WHO = JSON.parse(localStorage.getItem("ptg-who") || "null"); } catch (e) {}
+const seesAll = () => !WHO || WHO.role === "admin" || WHO.role === "responsable";
+const canEdit = pi => !WHO || WHO.role === "admin" || P[pi].start === WHO.col;
+const ownIdx = () => WHO && WHO.col ? P.findIndex(p => p.start === WHO.col) : -1;
+const visible = () => P.map((p, i) => i).filter(i => seesAll() || i === ownIdx());
+function applyWho() {
+  const v = visible();
+  let chosen = false; try { chosen = !!localStorage.getItem("ptg-me-set"); } catch (e) {}
+  if (!v.includes(me) || (!chosen && ownIdx() >= 0)) me = ownIdx() >= 0 ? ownIdx() : (v[0] || 0);
+  $("who").textContent = WHO ? WHO.nom + " · " + ({ admin: "administrateur", responsable: "responsable", salarie: "accès personnel" })[WHO.role] : "";
+  $("exp").classList.toggle("hide", !seesAll());
+  renderAll();
+}
+async function rpc(fn, args) {
+  const r = await fetch(CFG.supabaseUrl.replace(/\/$/, "") + "/rest/v1/rpc/" + fn, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", apikey: CFG.supabaseAnonKey, Authorization: "Bearer " + CFG.supabaseAnonKey },
+    body: JSON.stringify(Object.assign({ p_code: CODE }, args))
+  });
+  if (!r.ok) { const t = await r.text(); const e = new Error(t); e.status = r.status; e.badCode = /code invalide/i.test(t); throw e; }
+  return r.status === 204 ? null : r.json();
+}
+let dirty = {}; try { dirty = JSON.parse(localStorage.getItem("ptg-dirty") || "{}"); } catch (e) {}
+const saveDirty = () => { try { localStorage.setItem("ptg-dirty", JSON.stringify(dirty)); } catch (e) {} };
+async function put(iso, pi, data) {
+  if (!canEdit(pi)) { setSync("local", "Lecture seule : tu ne peux modifier que ton planning"); return; }
+  const k = recKey(iso, pi);
+  recs[k] = { iso, person: P[pi].name, start: data.start || "", end: data.end || "", sign: data.sign || "" };
+  if (TEST) { renderAll(); return; }
+  dirty[k] = true; saveDirty(); saveLocal(); renderAll();
+  flush();
+}
+let flushing = false;
+async function flush() {
+  if (flushing || !CODE) return; flushing = true;
+  try {
+    for (const k of Object.keys(dirty)) {
+      const r = REAL[k]; if (!r) { delete dirty[k]; continue; }
+      await rpc("ptg_upsert", { p_id: k, p_iso: r.iso, p_person: r.person, p_start: r.start, p_end: r.end, p_sign: r.sign });
+      delete dirty[k]; saveDirty();
+    }
+    setSync("ok", "Synchronisé");
+  } catch (e) {
+    if (e.badCode) return askCode(true);
+    if (/accès refusé|invalide/.test(e.message)) { dirty = {}; saveDirty(); setSync("local", "Modification refusée : tu n'as pas les droits sur ce planning"); flushing = false; pull(); return; }
+    setSync("local", "Hors ligne — " + Object.keys(dirty).length + " saisie(s) en attente d'envoi");
+  }
+  finally { flushing = false; }
+}
+async function pull() {
+  if (!CODE) return;
+  try {
+    const w = await rpc("ptg_me", {});
+    if (JSON.stringify(w) !== JSON.stringify(WHO)) { WHO = w; try { localStorage.setItem("ptg-who", JSON.stringify(WHO)); } catch (e) {} applyWho(); }
+    const rows = await rpc("ptg_list", {});
+    const fresh = {};
+    for (const x of rows) fresh[x.id] = { iso: x.iso, person: x.person, start: x.start_t || "", end: x.end_t || "", sign: x.sign || "" };
+    for (const k in dirty) if (REAL[k]) fresh[k] = REAL[k];
+    REAL = fresh; if (!TEST) recs = REAL; saveLocal(); renderAll();
+    if (!Object.keys(dirty).length) setSync("ok", "Synchronisé");
+    flush();
+  } catch (e) { if (e.badCode) return askCode(true); setSync("local", "Hors ligne — données de ce téléphone affichées"); }
+}
+function askCode(bad) {
+  $("login").classList.remove("hide");
+  $("lmsg").textContent = bad ? "Code incorrect." : "";
+}
+$("lok").onclick = async () => {
+  CODE = $("lcode").value.trim(); if (!CODE) return;
+  try {
+    WHO = await rpc("ptg_me", {});
+    // nouveau code sur ce téléphone : on repart d'un cache vide
+    REAL = {}; dirty = {}; if (!TEST) recs = REAL; saveDirty();
+    try { localStorage.setItem("ptg-code", CODE); localStorage.setItem("ptg-who", JSON.stringify(WHO)); localStorage.removeItem("ptg-me-set"); } catch (e) {}
+    $("login").classList.add("hide"); saveLocal(); applyWho(); pull();
+  }
+  catch (e) { $("lmsg").textContent = e.badCode ? "Code incorrect." : "Connexion impossible. Vérifie le réseau."; }
+};
+
+function setSync(m, txt) {
+  mode = m; $("dot").className = "dot " + (m === "ok" ? "ok" : m === "loading" ? "" : "loc"); $("synctxt").textContent = txt;
+}
+
+// ---- Pointeuse ----
+function openShift(now) {
+  // pointage en cours : aujourd'hui, ou la veille (poste de nuit)
+  const t = isoOf(now), y = new Date(now); y.setDate(y.getDate() - 1); const yi = isoOf(y);
+  for (const iso of [t, yi]) { const r = rec(iso); if (r.start && !r.end && rowByIso(iso)) return iso; }
+  return null;
+}
+function renderPointer() {
+  const now = NOW();
+  $("clock").textContent = hm(now);
+  $("today").textContent = now.toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" });
+  const open = openShift(now), t = isoOf(now), row = rowByIso(t);
+  const iso = open || t, r = rec(iso);
+  $("sIn").textContent = r.start || "—"; $("sOut").textContent = r.end || "—";
+  const live = r.start && !r.end ? dayHours(r.start, hm(now)) : dayHours(r.start, r.end);
+  $("sTot").textContent = live == null ? "—" : fmtH(live);
+  const b = $("btn"); let note = "";
+  if (open) { b.disabled = false; b.className = "big out"; b.textContent = "Pointer le départ"; if (open !== t) note = "Poste commencé hier (" + r.start + ") : le départ sera noté sur cette journée."; }
+  else if (!row) {
+    b.disabled = true; b.className = "big"; b.textContent = "Hors période";
+    note = "Le planning couvre du " + DAYS[0].label + " au " + DAYS[DAYS.length - 1].label + '.<br><button class="lnk" onclick="setTest(true)">Essayer en mode test →</button>';
+  }
+  else if (r.start && r.end && !r.sign) { b.disabled = false; b.className = "big"; b.textContent = "Signer la journée"; }
+  else if (r.start && r.end) { b.disabled = true; b.className = "big"; b.textContent = "Journée signée ✓"; note = r.sign; }
+  else { b.disabled = false; b.className = "big"; b.textContent = "Pointer l'arrivée"; }
+  if (!canEdit(me)) { b.disabled = true; b.className = "big"; b.textContent = "Lecture seule"; }
+  $("pnote").innerHTML = note ? '<div class="note"' + (note === r.sign ? ' style="background:var(--acc2);color:var(--acc)"' : "") + '>' + note + '</div>' : "";
+  const W = weekOf(row ? row.iso : DAYS[0].iso), wk = W.days, tot = W.tot;
+  let h = "<tr><th>" + (tot ? nice(tot.label) : "") + "</th><th>Arr.</th><th>Dép.</th><th>Durée</th><th>Sig.</th></tr>";
+  for (const d of wk) { const x = rec(d.iso); h += "<tr><td style='text-transform:capitalize'>" + d.label.replace(/ \d{4}$/, "") + "</td><td>" + (x.start || "") + "</td><td>" + (x.end || "") + "</td><td>" + (dayHours(x.start, x.end) == null ? "" : fmtH(dayHours(x.start, x.end))) + "</td><td style='color:var(--acc)'>" + (x.sign ? "✓" : "") + "</td></tr>"; }
+  if (tot) { const v = computeValues(recs)[P[me].total + tot.r]; h += "<tr class='strong'><td>Total</td><td></td><td></td><td>" + fmtH(v || 0) + "</td><td></td></tr>"; }
+  $("mini").innerHTML = h;
+}
+$("btn").onclick = () => {
+  const now = NOW(), open = openShift(now), t = isoOf(now);
+  if (open) { const r = rec(open); confirmBox("Départ de <b>" + P[me].name + "</b> à <b>" + hm(now) + "</b> ?", () => put(open, me, Object.assign({}, r, { end: hm(now) }))); }
+  else if (rowByIso(t) && rec(t).start && rec(t).end) { const r = rec(t); if (!r.sign) confirmBox("Signer la journée de <b>" + P[me].name + "</b> (" + r.start + " → " + r.end + ") ?", () => put(t, me, Object.assign({}, r, { sign: "✓ " + P[me].name + " " + ddmm(now) + " " + hm(now) }))); }
+  else if (rowByIso(t)) { const r = rec(t); confirmBox("Arrivée de <b>" + P[me].name + "</b> à <b>" + hm(now) + "</b> ?", () => put(t, me, Object.assign({}, r, { start: hm(now) }))); }
+};
+function confirmBox(html, ok) {
+  $("mtxt").innerHTML = '<div style="font-size:18px;text-align:center;padding:6px 0">' + html + "</div>";
+  $("modal").classList.remove("hide");
+  $("mno").onclick = () => $("modal").classList.add("hide");
+  $("myes").onclick = () => { $("modal").classList.add("hide"); ok(); };
+}
+
+// ---- Planning ----
+function buildPlanning() {
+  let h = "";
+  const todayIso = isoOf(NOW());
+  for (const W of WEEKS) {
+    h += '<h3><span>' + (W.tot ? nice(W.tot.label) : "") + '</span><span' + (W.tot ? ' data-tot="' + W.tot.r + '"' : "") + '></span></h3>';
+    for (const d of W.days) {
+      h += '<div class="day' + (d.iso === todayIso ? " today" : "") + '" id="d-' + d.iso + '"><div class="lbl">' + d.label.replace(/ \d{4}$/, "") + '</div><div class="tot" data-dt></div>' +
+        '<div class="times"><input type="time" data-iso="' + d.iso + '" data-f="start" aria-label="Arrivée"><span>→</span><input type="time" data-iso="' + d.iso + '" data-f="end" aria-label="Départ"><button class="clr" data-clr="' + d.iso + '" aria-label="Effacer">×</button></div>' +
+        '<div class="sg"><button data-sg="' + d.iso + '">Signer</button><span data-sgt></span></div></div>';
+    }
+  }
+  $("weeks").innerHTML = h; planBuilt = true;
+}
+// écouteurs posés une seule fois (sinon ils s'empilent à chaque reconstruction)
+  $("weeks").addEventListener("change", e => {
+    const i = e.target; if (!i.dataset.iso) return;
+    const r = Object.assign({}, rec(i.dataset.iso)); r[i.dataset.f] = i.value; put(i.dataset.iso, me, r);
+  });
+$("weeks").addEventListener("click", e => {
+    const b = e.target.closest("button"); if (!b) return;
+    if (b.dataset.clr) { const iso = b.dataset.clr; confirmBox("Effacer la journée du " + rowByIso(iso).label + " pour " + P[me].name + " ?", () => put(iso, me, {})); }
+    if (b.dataset.sg) {
+      const iso = b.dataset.sg, r = Object.assign({}, rec(iso));
+      if (r.sign) confirmBox("Retirer la signature ?", () => { r.sign = ""; put(iso, me, r); });
+      else { const n = NOW(); r.sign = "✓ " + P[me].name + " " + ddmm(n) + " " + hm(n); put(iso, me, r); }
+    }
+  });
+
+function renderPlanning() {
+  if (!planBuilt) buildPlanning();
+  const vals = computeValues(recs);
+  for (const d of DAYS) {
+    const el = $("d-" + d.iso), r = rec(d.iso);
+    for (const i of el.querySelectorAll("input")) if (document.activeElement !== i) i.value = r[i.dataset.f] || "";
+    const h = dayHours(r.start, r.end);
+    el.querySelector("[data-dt]").textContent = h == null ? "" : fmtH(h);
+    const sb = el.querySelector("[data-sg]"); sb.className = r.sign ? "on" : ""; sb.textContent = r.sign ? "Signé" : "Signer";
+    el.querySelector("[data-sgt]").textContent = r.sign || "";
+  }
+  for (const s of $("weeks").querySelectorAll("[data-tot]")) s.textContent = fmtH(vals[P[me].total + s.dataset.tot] || 0);
+}
+
+// ---- Totaux ----
+function renderExport() {
+  const vals = computeValues(recs);
+  const V = visible().map(i => P[i]);
+  let h = "<tr><th></th>" + V.map(p => "<th>" + p.name + "</th>").join("") + "</tr>";
+  for (const row of META.rows.filter(r => r.kind === "total")) {
+    const strong = !/SEMAINE/.test(row.label);
+    h += "<tr" + (strong ? " class='strong'" : "") + "><td>" + row.label.replace("TOTAL ", "").toLowerCase().replace(/^./, c => c.toUpperCase()) + "</td>" + V.map(p => "<td>" + fmtH(vals[p.total + row.r] || 0) + "</td>").join("") + "</tr>";
+  }
+  $("sum").innerHTML = h + "<tr><td colspan='" + (V.length + 1) + "' style='color:var(--mut);font-size:12px;text-align:left;border:0'>Mêmes valeurs et même format que dans l'Excel.</td></tr>";
+}
+$("exp").onclick = () => {
+  const m = $("emsg");
+  try {
+    const blob = new Blob([buildXlsx(recs)], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = META.filename.replace(/\.xlsx$/, "") + "_" + isoOf(new Date()) + ".xlsx";
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+    m.textContent = "Fichier téléchargé.";
+  } catch (e) { m.textContent = "Échec : " + e.message; }
+};
+
+// ---- Navigation & rendu ----
+let view = "pointer";
+function renderAll() {
+  $("chips").innerHTML = visible().map(i => '<button class="chip' + (i === me ? " on" : "") + '" data-p="' + i + '">' + P[i].name + (canEdit(i) ? "" : " 👁") + "</button>").join("");
+  document.body.classList.toggle("ro", !canEdit(me));
+  if (view === "pointer") renderPointer(); if (view === "planning") renderPlanning(); if (view === "export") renderExport();
+}
+$("chips").onclick = e => { const b = e.target.closest("[data-p]"); if (!b) return; me = +b.dataset.p; try { localStorage.setItem("ptg-me", me); localStorage.setItem("ptg-me-set", "1"); } catch (x) {} renderAll(); };
+document.querySelector("nav").onclick = e => {
+  const b = e.target.closest("button"); if (!b) return; view = b.dataset.v;
+  for (const x of document.querySelectorAll("nav button")) x.classList.toggle("on", x === b);
+  for (const v of ["pointer", "planning", "export"]) $("v-" + v).classList.toggle("hide", v !== view);
+  renderAll();
+  if (view === "planning") { const t = $("d-" + isoOf(NOW())); if (t) t.scrollIntoView({ block: "center" }); }
+};
+$("ttl").textContent = "Planning · Béthune";
+setInterval(() => { if (view === "pointer") renderPointer(); }, 15000);
+renderAll();
+
+$("logout").onclick = () => {
+  const n = Object.keys(dirty).length;
+  confirmBox((n ? "<b>" + n + " saisie(s) pas encore envoyée(s)</b> seront perdues.<br>" : "") + "Se déconnecter de ce téléphone ?", () => {
+    CODE = ""; WHO = null; REAL = {}; dirty = {}; if (!TEST) recs = REAL;
+    try { ["ptg-code", "ptg-who", "ptg-recs", "ptg-dirty", "ptg-me-set"].forEach(k => localStorage.removeItem(k)); } catch (e) {}
+    applyWho(); askCode(false);
+  });
+};
+// ---- Démarrage ----
+if (!CFG.supabaseUrl || /VOTRE/.test(CFG.supabaseUrl)) setSync("local", "Base non configurée (config.js) — enregistré sur ce téléphone");
+else if (!CODE) askCode(false);
+else { applyWho(); pull(); }
+setInterval(pull, 20000);
+document.addEventListener("visibilitychange", () => { if (!document.hidden) pull(); });
+</script>
+</body>
+</html>
