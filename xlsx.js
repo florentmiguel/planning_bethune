@@ -120,3 +120,43 @@ function buildXlsx(recs) {
   parts["xl/workbook.xml"] = parts["xl/workbook.xml"].replace(/<calcPr([^/]*)\/>/, (m, a) => /fullCalcOnLoad/.test(a) ? m : "<calcPr" + a + ' fullCalcOnLoad="1"/>');
   return makeZip(META.order.map(n => [n, parts[n]]));
 }
+
+// ===== Export du détail quotidien d'une personne (classeur simple, une feuille) =====
+function buildDetailXlsx(recs, pi) {
+  const p = META.people[pi];
+  const esc = s => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const S = (ref, txt, st) => '<c r="' + ref + '" t="inlineStr"' + (st ? ' s="' + st + '"' : "") + "><is><t>" + esc(txt) + "</t></is></c>";
+  const N = (ref, v, st) => '<c r="' + ref + '" s="' + st + '"><v>' + v + "</v></c>";
+  const rows = []; let n = 0;
+  const row = cells => { n++; rows.push('<row r="' + n + '">' + cells.map(f => f(n)).join("") + "</row>"); };
+  row([r => S("A" + r, "Heures de " + p.name + " — " + (META.title || "Planning"), 3)]);
+  row([]);
+  row([r => S("A" + r, "Date", 3), r => S("B" + r, "Arrivée", 3), r => S("C" + r, "Départ", 3), r => S("D" + r, "Durée", 3), r => S("E" + r, "Signature", 3)]);
+  let week = 0, total = 0;
+  for (const rw of META.rows) {
+    if (rw.kind === "day") {
+      const x = recs[recKey(rw.iso, pi)] || {}, h = dayHours(x.start, x.end), a = toMin(x.start), b = toMin(x.end);
+      if (h != null) { week += h; total += h; }
+      row([r => S("A" + r, rw.label),
+           r => a == null ? "" : N("B" + r, a / 1440, 1),
+           r => b == null ? "" : N("C" + r, b / 1440, 1),
+           r => h == null ? "" : N("D" + r, h / 24, 2),
+           r => x.sign ? S("E" + r, x.sign) : ""]);
+    } else if (/SEMAINE/.test(rw.label)) {
+      row([r => S("A" + r, rw.label.replace("TOTAL ", "Total "), 3), r => N("D" + r, week / 24, 4)]);
+      week = 0;
+    }
+  }
+  row([]);
+  row([r => S("A" + r, "Total général", 3), r => N("D" + r, total / 24, 4)]);
+  const ns = 'xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"';
+  const files = [
+    ["[Content_Types].xml", '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/></Types>'],
+    ["_rels/.rels", '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>'],
+    ["xl/workbook.xml", '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook ' + ns + ' xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Mes heures" sheetId="1" r:id="rId1"/></sheets></workbook>'],
+    ["xl/_rels/workbook.xml.rels", '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>'],
+    ["xl/styles.xml", '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet ' + ns + '><numFmts count="2"><numFmt numFmtId="164" formatCode="hh:mm"/><numFmt numFmtId="165" formatCode="[hh]:mm"/></numFmts><fonts count="2"><font><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="11"/><name val="Calibri"/></font></fonts><fills count="2"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill></fills><borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="5"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="164" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/><xf numFmtId="165" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/><xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1"/><xf numFmtId="165" fontId="1" fillId="0" borderId="0" xfId="0" applyNumberFormat="1" applyFont="1"/></cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>'],
+    ["xl/worksheets/sheet1.xml", '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet ' + ns + '><cols><col min="1" max="1" width="30" customWidth="1"/><col min="2" max="4" width="11" customWidth="1"/><col min="5" max="5" width="26" customWidth="1"/></cols><sheetData>' + rows.join("") + "</sheetData></worksheet>"]
+  ];
+  return makeZip(files);
+}

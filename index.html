@@ -96,6 +96,8 @@ body.test #testbar{display:block}
 
   <section id="v-export" class="hide">
     <div class="card"><table id="sum"></table></div>
+    <div class="card" id="detail"></div>
+    <div class="card hide" id="noms"></div>
     <button class="big" id="exp">Télécharger l'Excel complété</button>
     <div class="msg" id="emsg">Le fichier garde la mise en forme, les formules et le tableau d'origine.</div>
     <div style="text-align:center;margin-top:18px"><button class="lnk" id="logout">Changer de code / se déconnecter</button></div>
@@ -105,7 +107,7 @@ body.test #testbar{display:block}
 <nav>
   <button data-v="pointer" class="on"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>Pointer</button>
   <button data-v="planning"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>Planning</button>
-  <button data-v="export"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0l-4-4m4 4l4-4M4 17v3h16v-3"/></svg>Totaux & Excel</button>
+  <button data-v="export"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0l-4-4m4 4l4-4M4 17v3h16v-3"/></svg>Totaux</button>
 </nav>
 
 <div class="modal hide" id="login"><div class="card"><div style="font-size:18px;font-weight:700;margin-bottom:8px">Code d'accès</div><div style="color:var(--mut);font-size:14px">Saisis ton code personnel (demande-le à Florent). Il est mémorisé sur ce téléphone.</div><input id="lcode" type="password" autocomplete="current-password" style="width:100%;font:inherit;font-size:18px;padding:12px;margin-top:12px;border:1px solid var(--line);border-radius:12px;background:var(--bg);color:var(--ink)"><div class="msg" id="lmsg"></div><div class="row2"><button class="pri" id="lok">Valider</button></div></div></div>
@@ -146,7 +148,13 @@ let CODE = ""; try { CODE = localStorage.getItem("ptg-code") || ""; } catch (e) 
 // Identité liée au code : { nom, role: admin | responsable | salarie, col: "B" | "F" | "J" | null }
 let WHO = null; try { WHO = JSON.parse(localStorage.getItem("ptg-who") || "null"); } catch (e) {}
 const seesAll = () => !WHO || WHO.role === "admin" || WHO.role === "responsable";
-const canEdit = pi => !WHO || WHO.role === "admin" || P[pi].start === WHO.col;
+// rôle de la personne active sur une colonne (renvoyé par la base)
+const colRole = col => { const n = WHO && Array.isArray(WHO.noms) && WHO.noms.find(x => x.col === col); return n ? n.role : null; };
+// modifier les heures : admin partout ; responsable sur sa colonne et celles des salariés ; salarié jamais
+const canEdit = pi => !WHO || WHO.role === "admin" || (WHO.role === "responsable" && (P[pi].start === WHO.col || colRole(P[pi].start) === "salarie"));
+// pointer / signer : sa propre colonne, ou toute colonne qu'on peut modifier
+const canPoint = pi => canEdit(pi) || (!!WHO && P[pi].start === WHO.col);
+const isSalarie = () => !!WHO && WHO.role === "salarie";
 const ownIdx = () => WHO && WHO.col ? P.findIndex(p => p.start === WHO.col) : -1;
 const visible = () => P.map((p, i) => i).filter(i => seesAll() || i === ownIdx());
 function applyWho() {
@@ -159,6 +167,10 @@ function applyWho() {
   if (!v.includes(me) || (!chosen && ownIdx() >= 0)) me = ownIdx() >= 0 ? ownIdx() : (v[0] || 0);
   $("who").textContent = WHO ? WHO.nom + " · " + ({ admin: "administrateur", responsable: "responsable", salarie: "accès personnel" })[WHO.role] : "";
   $("exp").classList.toggle("hide", !seesAll());
+  $("emsg").classList.toggle("hide", !seesAll());
+  // salarié : pas d'onglet Planning (il ne modifie pas les heures)
+  const nb = document.querySelector('nav button[data-v="planning"]'); nb.classList.toggle("hide", isSalarie() && !TEST);
+  if (isSalarie() && !TEST && view === "planning") document.querySelector('nav button[data-v="pointer"]').click();
   renderAll();
 }
 // Adresse de base Supabase nettoyée : accepte aussi une URL collée avec /rest/v1, un / final
@@ -192,7 +204,7 @@ function explain(e) {
 let dirty = {}; try { dirty = JSON.parse(localStorage.getItem("ptg-dirty") || "{}"); } catch (e) {}
 const saveDirty = () => { try { localStorage.setItem("ptg-dirty", JSON.stringify(dirty)); } catch (e) {} };
 async function put(iso, pi, data) {
-  if (!canEdit(pi)) { setSync("local", "Lecture seule : tu ne peux modifier que ton planning"); return; }
+  if (!TEST && !canEdit(pi)) { setSync("local", "Lecture seule : modification réservée aux responsables"); return; }
   const k = recKey(iso, pi);
   recs[k] = { iso, person: P[pi].name, start: data.start || "", end: data.end || "", sign: data.sign || "" };
   if (TEST) { renderAll(); return; }
@@ -282,7 +294,7 @@ function renderPointer() {
   else if (r.start && r.end && !r.sign) { b.disabled = false; b.className = "big"; b.textContent = "Signer la journée"; }
   else if (r.start && r.end) { b.disabled = true; b.className = "big"; b.textContent = "Journée signée ✓"; note = r.sign; }
   else { b.disabled = false; b.className = "big"; b.textContent = "Pointer l'arrivée"; }
-  if (!canEdit(me)) { b.disabled = true; b.className = "big"; b.textContent = "Lecture seule"; }
+  if (!canPoint(me)) { b.disabled = true; b.className = "big"; b.textContent = "Lecture seule"; }
   $("pnote").innerHTML = note ? '<div class="note"' + (note === r.sign ? ' style="background:var(--acc2);color:var(--acc)"' : "") + '>' + note + '</div>' : "";
   const W = weekOf(row ? row.iso : DAYS[0].iso), wk = W.days, tot = W.tot;
   let h = "<tr><th>" + (tot ? nice(tot.label) : "") + "</th><th>Arr.</th><th>Dép.</th><th>Durée</th><th>Sig.</th></tr>";
@@ -290,11 +302,25 @@ function renderPointer() {
   if (tot) { const v = computeValues(recs)[P[me].total + tot.r]; h += "<tr class='strong'><td>Total</td><td></td><td></td><td>" + fmtH(v || 0) + "</td><td></td></tr>"; }
   $("mini").innerHTML = h;
 }
+// Un salarié pointe via la base : l'heure enregistrée est celle du serveur, pas celle du téléphone
+async function pointAction(action, iso) {
+  try { await rpc("ptg_pointer", { p_action: action, p_iso: iso || null }); setSync("ok", "Enregistré"); pull(); }
+  catch (e) {
+    if (e.badCode) return askCode(true);
+    const m = /(arrivée déjà pointée|aucune arrivée en cours|journée incomplète|déjà signée|date invalide)/.exec(e.message || "");
+    setSync("local", m ? "Refusé : " + m[1] : (e.net ? "Pas de réseau : pointage non enregistré, réessaie" : "Erreur : pointage non enregistré"));
+    renderAll();
+  }
+}
+function act(action, iso, newRec) {
+  if (!TEST && isSalarie()) return pointAction(action, iso);
+  put(iso, me, newRec);
+}
 $("btn").onclick = () => {
   const now = NOW(), open = openShift(now), t = isoOf(now);
-  if (open) { const r = rec(open); confirmBox("Départ de <b>" + P[me].name + "</b> à <b>" + hm(now) + "</b> ?", () => put(open, me, Object.assign({}, r, { end: hm(now) }))); }
-  else if (rowByIso(t) && rec(t).start && rec(t).end) { const r = rec(t); if (!r.sign) confirmBox("Signer la journée de <b>" + P[me].name + "</b> (" + r.start + " → " + r.end + ") ?", () => put(t, me, Object.assign({}, r, { sign: "✓ " + P[me].name + " " + ddmm(now) + " " + hm(now) }))); }
-  else if (rowByIso(t)) { const r = rec(t); confirmBox("Arrivée de <b>" + P[me].name + "</b> à <b>" + hm(now) + "</b> ?", () => put(t, me, Object.assign({}, r, { start: hm(now) }))); }
+  if (open) { const r = rec(open); confirmBox("Départ de <b>" + P[me].name + "</b> à <b>" + hm(now) + "</b> ?", () => act("depart", open, Object.assign({}, r, { end: hm(now) }))); }
+  else if (rowByIso(t) && rec(t).start && rec(t).end) { const r = rec(t); if (!r.sign) confirmBox("Signer la journée de <b>" + P[me].name + "</b> (" + r.start + " → " + r.end + ") ?", () => act("signer", t, Object.assign({}, r, { sign: "✓ " + P[me].name + " " + ddmm(now) + " " + hm(now) }))); }
+  else if (rowByIso(t)) { const r = rec(t); confirmBox("Arrivée de <b>" + P[me].name + "</b> à <b>" + hm(now) + "</b> ?", () => act("arrivee", t, Object.assign({}, r, { start: hm(now) }))); }
 };
 function confirmBox(html, ok) {
   $("mtxt").innerHTML = '<div style="font-size:18px;text-align:center;padding:6px 0">' + html + "</div>";
@@ -347,7 +373,45 @@ function renderPlanning() {
 }
 
 // ---- Totaux ----
+function renderDetail() {
+  // détail jour par jour de la personne sélectionnée, avec total de chaque semaine
+  const p = P[me], mine = canPoint(me);
+  let h = "<b>Détail — " + p.name + "</b><table style='margin-top:8px'><tr><th>Jour</th><th>Arr.</th><th>Dép.</th><th>Durée</th><th>Sig.</th></tr>", tot = 0;
+  for (const W of WEEKS) {
+    let wk = 0;
+    for (const d of W.days) {
+      const x = rec(d.iso), dh = dayHours(x.start, x.end); if (dh != null) wk += dh;
+      const signable = mine && x.start && x.end && !x.sign && d.iso <= isoOf(NOW());
+      h += "<tr><td style='text-transform:capitalize'>" + d.label.replace(/ \d{4}$/, "").replace(/ (novembre|décembre)/, m => m.slice(0, 4) + ".") + "</td><td>" + (x.start || "") + "</td><td>" + (x.end || "") + "</td><td>" + (dh == null ? "" : fmtH(dh)) + "</td><td>" + (x.sign ? "<span style='color:var(--acc)'>✓</span>" : signable ? "<button class='lnk' style='padding:0' data-sig='" + d.iso + "'>Signer</button>" : "") + "</td></tr>";
+    }
+    tot += wk;
+    h += "<tr class='strong'><td>" + (W.tot ? nice(W.tot.label) : "") + "</td><td></td><td></td><td>" + fmtH(wk) + "</td><td></td></tr>";
+  }
+  h += "<tr class='strong'><td>Total</td><td></td><td></td><td>" + fmtH(tot) + "</td><td></td></tr></table>";
+  h += "<button class='big' id='expd' style='font-size:17px;padding:16px'>Exporter le détail (.xlsx)</button>";
+  $("detail").innerHTML = h;
+}
+$("detail").addEventListener("click", e => {
+  const b = e.target.closest("button"); if (!b) return;
+  if (b.id === "expd") return saveFile(buildDetailXlsx(recs, me), "Heures_" + P[me].name.replace(/[^A-Za-z0-9À-ÿ_-]/g, "_") + "_" + isoOf(new Date()) + ".xlsx");
+  if (b.dataset.sig) { const iso = b.dataset.sig, r = rec(iso); confirmBox("Signer la journée du " + rowByIso(iso).label + " ?", () => act("signer", iso, Object.assign({}, r, { sign: "✓ " + P[me].name + " " + ddmm(NOW()) + " " + hm(NOW()) }))); }
+});
+function saveFile(bytes, name) {
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([bytes], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }));
+  a.download = name; document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+}
 function renderExport() {
+  renderDetail();
+  // Prénoms modifiables (admin et responsables) : un champ par colonne occupée
+  const can = WHO && (WHO.role === "admin" || WHO.role === "responsable") && Array.isArray(WHO.noms);
+  $("noms").classList.toggle("hide", !can);
+  if (can && !$("noms").contains(document.activeElement)) {
+    $("noms").innerHTML = "<b>Prénoms</b>" + P.filter(p => WHO.noms.some(n => n.col === p.start)).map(p =>
+      '<div style="display:flex;gap:8px;margin-top:10px"><input data-col="' + p.start + '" value="' + p.name.replace(/"/g, "&quot;") + '" maxlength="40" style="flex:1;font:inherit;padding:8px;border:1px solid var(--line);border-radius:10px;background:var(--bg);color:var(--ink)"><button class="lnk" data-ren="' + p.start + '">Enregistrer</button></div>').join("") +
+      '<div class="msg" id="nmsg"></div>';
+  }
   const vals = computeValues(recs);
   const V = visible().map(i => P[i]);
   let h = "<tr><th></th>" + V.map(p => "<th>" + p.name + "</th>").join("") + "</tr>";
@@ -357,6 +421,12 @@ function renderExport() {
   }
   $("sum").innerHTML = h + "<tr><td colspan='" + (V.length + 1) + "' style='color:var(--mut);font-size:12px;text-align:left;border:0'>Mêmes valeurs et même format que dans l'Excel.</td></tr>";
 }
+$("noms").addEventListener("click", async e => {
+  const col = e.target.dataset && e.target.dataset.ren; if (!col) return;
+  const nom = $("noms").querySelector('input[data-col="' + col + '"]').value.trim();
+  try { await rpc("ptg_renommer", { p_col: col, p_nom: nom }); document.activeElement.blur(); $("nmsg").textContent = "Enregistré."; pull(); }
+  catch (x) { $("nmsg").textContent = x.badCode ? "Code refusé." : (/[\w ]*(invalide|refusé|aucune personne[^"]*)/.exec(x.message) || ["Erreur"])[0]; }
+});
 $("exp").onclick = () => {
   const m = $("emsg");
   try {
@@ -373,7 +443,7 @@ $("exp").onclick = () => {
 // ---- Navigation & rendu ----
 let view = "pointer";
 function renderAll() {
-  $("chips").innerHTML = visible().map(i => '<button class="chip' + (i === me ? " on" : "") + '" data-p="' + i + '">' + P[i].name + (canEdit(i) ? "" : " 👁") + "</button>").join("");
+  $("chips").innerHTML = visible().map(i => '<button class="chip' + (i === me ? " on" : "") + '" data-p="' + i + '">' + P[i].name + (canPoint(i) ? "" : " 👁") + "</button>").join("");
   document.body.classList.toggle("ro", !canEdit(me));
   if (view === "pointer") renderPointer(); if (view === "planning") renderPlanning(); if (view === "export") renderExport();
 }
