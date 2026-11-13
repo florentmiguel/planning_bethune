@@ -152,7 +152,7 @@ const visible = () => P.map((p, i) => i).filter(i => seesAll() || i === ownIdx()
 function applyWho() {
   // prénoms venant de la base (table acces) : priorité sur config.js.
   // On repart toujours des prénoms de base, sinon un ancien nom (personne supprimée) restaerait affiché.
-  for (const p of P) {if (p.base == null) p.base = p.name; p.name = p.base; }
+  for (const p of P) {if (p.base == null) p.base = p.name; p.name = (WHO && Array.isArray(WHO.noms)) ? "Poste vacant" : p.base; }
   if (WHO && Array.isArray(WHO.noms)) for (const n of WHO.noms) { const p = P.find(q => q.start === n.col); if (p && n.nom) p.name = n.nom; }
   const v = visible();
   let chosen = false; try { chosen = !!localStorage.getItem("ptg-me-set"); } catch (e) {}
