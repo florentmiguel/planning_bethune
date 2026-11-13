@@ -3,14 +3,13 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Planning Béthune</title>
+<title>Planning Événements</title>
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="Planning">
 <meta name="theme-color" content="#1f6f4a">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icon.svg">
 <script>document.write('<script src="config.js?' + Date.now() + '"><\/script>');</script>
-<script src="planning.js"></script>
 <script src="xlsx.js"></script>
 <style>
 :root{--bg:#f4f3ef;--card:#fff;--ink:#1c1c1a;--mut:#6f6d66;--line:#e3e1da;--acc:#1f6f4a;--acc2:#e7f2ec;--warn:#b4541a;--warn2:#fbeee4;--r:16px}
@@ -64,15 +63,25 @@ body.test #testbar{display:block}
 .row2 button:disabled{opacity:.6}
 #lmsg{color:var(--warn);text-align:left}
 </style>
+<style>
+.adm input,.adm select{font:inherit;font-size:15px;padding:7px;border:1px solid var(--line);border-radius:10px;background:var(--bg);color:var(--ink);min-width:0;width:100%}
+.adm .it{border-top:1px solid var(--line);padding:10px 0;display:grid;grid-template-columns:1fr 1fr;gap:6px}
+.adm label{display:flex;align-items:center;gap:6px;font-size:14px}.adm label input{width:auto}
+.adm .sub{margin-top:8px;font-weight:600;font-size:14px;color:var(--mut)}
+#detail table td,#detail table th{padding:6px 3px}
+#sum th,#sum td{white-space:nowrap;padding:8px 6px}
+.adm label.full{grid-column:1/-1}.adm label.full input{flex:1;width:auto}
+</style>
 </head>
 <body>
 <div class="wrap">
   <header>
-    <h1 id="ttl"></h1>
+    <h1 id="ttl">Planning Événements</h1>
+    <select id="evsel" class="hide" style="margin-top:8px;width:100%;font:inherit;font-size:16px;font-weight:600;padding:10px;border:1px solid var(--line);border-radius:12px;background:var(--card);color:var(--ink)"></select>
     <div class="sync"><span class="dot" id="dot"></span><span id="synctxt">Connexion…</span></div>
     <div class="sync" id="who" style="font-weight:600"></div>
   </header>
-  <div id="testbar"><b>MODE TEST</b> — rien n'est enregistré. Jour simulé : <select id="tday" onchange="TEST_DAY=this.value;planBuilt=false;renderAll()"></select> <button onclick="TESTRECS={};recs=TESTRECS;renderAll()">Vider</button> <button onclick="setTest(false)">Quitter</button></div>
+  <div id="testbar"><b>MODE TEST</b> — rien n'est enregistré. Jour simulé : <select id="tday"></select> <button id="tclear">Vider</button> <button id="tquit">Quitter</button></div>
   <div class="chips" id="chips"></div>
 
   <section id="v-pointer">
@@ -87,19 +96,20 @@ body.test #testbar{display:block}
       <button class="big" id="btn">Pointer</button>
       <div id="pnote"></div>
     </div>
-    <div class="card">
-      <table id="mini"></table>
-    </div>
+    <div class="card"><table id="mini"></table></div>
   </section>
 
   <section id="v-planning" class="hide"><div class="wk" id="weeks"></div></section>
 
   <section id="v-export" class="hide">
-    <div class="card"><table id="sum"></table></div>
+    <div class="card" style="overflow-x:auto"><table id="sum"></table></div>
     <div class="card" id="detail"></div>
-    <div class="card hide" id="noms"></div>
-    <button class="big" id="exp">Télécharger l'Excel complété</button>
-    <div class="msg" id="emsg">Le fichier garde la mise en forme, les formules et le tableau d'origine.</div>
+    <div id="admin" class="hide">
+      <button class="big" id="exp">Télécharger le planning complet (.xlsx)</button>
+      <div class="msg" id="emsg">Toutes les personnes de l'événement, avec formules et totaux.</div>
+      <div class="card adm" id="periodes"></div>
+      <div class="card adm" id="users"></div>
+    </div>
     <div style="text-align:center;margin-top:18px"><button class="lnk" id="logout">Changer de code / se déconnecter</button></div>
   </section>
 </div>
@@ -110,72 +120,22 @@ body.test #testbar{display:block}
   <button data-v="export"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0l-4-4m4 4l4-4M4 17v3h16v-3"/></svg>Totaux</button>
 </nav>
 
-<div class="modal hide" id="login"><div class="card"><div style="font-size:18px;font-weight:700;margin-bottom:8px">Code d'accès</div><div style="color:var(--mut);font-size:14px">Saisis ton code personnel (demande-le à Florent). Il est mémorisé sur ce téléphone.</div><input id="lcode" type="password" autocomplete="current-password" style="width:100%;font:inherit;font-size:18px;padding:12px;margin-top:12px;border:1px solid var(--line);border-radius:12px;background:var(--bg);color:var(--ink)"><div class="msg" id="lmsg"></div><div class="row2"><button class="pri" id="lok">Valider</button></div></div></div>
+<div class="modal hide" id="login"><div class="card"><div style="font-size:18px;font-weight:700;margin-bottom:8px">Code d'accès</div><div style="color:var(--mut);font-size:14px">Saisis ton code personnel. Il est mémorisé sur ce téléphone.</div><input id="lcode" type="password" autocomplete="current-password" style="width:100%;font:inherit;font-size:18px;padding:12px;margin-top:12px;border:1px solid var(--line);border-radius:12px;background:var(--bg);color:var(--ink)"><div class="msg" id="lmsg"></div><div class="row2"><button class="pri" id="lok">Valider</button></div></div></div>
 <div class="modal hide" id="modal"><div class="card"><div id="mtxt"></div><div class="row2"><button id="mno">Annuler</button><button class="pri" id="myes">Confirmer</button></div></div></div>
 
 <script>
-// ===== Interface =====
+// ===================== Planning Béthune — page =====================
 const $ = id => document.getElementById(id);
-const P = META.people, DAYS = META.rows.filter(r => r.kind === "day");
-let planBuilt = false;
-let recs = {}, me = 0, mode = "loading";
-try { const s = localStorage.getItem("ptg-me"); if (s != null && P[+s]) me = +s; } catch (e) {}
-try { recs = JSON.parse(localStorage.getItem("ptg-recs") || "{}"); } catch (e) {}
-// ---- Mode test : données à part, jamais envoyées, date simulée ----
-let TEST = false, TEST_DAY = DAYS[0].iso, REAL = recs, TESTRECS = {};
-function NOW() { const n = new Date(); if (!TEST) return n; const [y, m, d] = TEST_DAY.split("-").map(Number); return new Date(y, m - 1, d, n.getHours(), n.getMinutes(), n.getSeconds()); }
-function setTest(on) {
-  TEST = on; recs = on ? TESTRECS : REAL; planBuilt = false;
-  document.body.classList.toggle("test", on);
-  if (on) $("tday").innerHTML = DAYS.map(d => '<option value="' + d.iso + '"' + (d.iso === TEST_DAY ? " selected" : "") + ">" + d.label.replace(/ \d{4}$/, "") + "</option>").join("");
-  renderAll();
-}
-
-const isoOf = d => d.getFullYear() + "-" + pad2(d.getMonth() + 1) + "-" + pad2(d.getDate());
+const escH = t => String(t == null ? "" : t).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/"/g, "&quot;");
 const hm = d => pad2(d.getHours()) + ":" + pad2(d.getMinutes());
 const ddmm = d => pad2(d.getDate()) + "/" + pad2(d.getMonth() + 1);
-const rowByIso = iso => DAYS.find(r => r.iso === iso);
-// semaines = jours entre deux lignes « TOTAL SEMAINE » (les totaux mensuels sont ignorés)
-const WEEKS = (() => { const w = []; let cur = []; for (const r of META.rows) { if (r.kind === "day") cur.push(r); else if (/SEMAINE/.test(r.label)) { w.push({ tot: r, days: cur }); cur = []; } } if (cur.length) w.push({ tot: null, days: cur }); return w; })();
-const weekOf = iso => WEEKS.find(w => w.days.some(d => d.iso === iso)) || WEEKS[0];
 const nice = l => l.replace("TOTAL ", "").toLowerCase().replace(/^./, c => c.toUpperCase());
-const rec = (iso, pi = me) => recs[recKey(iso, pi)] || {};
+const MOIS_C = { janvier: "janv.", février: "févr.", mars: "mars", avril: "avr.", mai: "mai", juin: "juin", juillet: "juil.", août: "août", septembre: "sept.", octobre: "oct.", novembre: "nov.", décembre: "déc." };
+const short = l => l.replace(/ \d{4}$/, "").replace(/ (\S+)$/, (m, mo) => " " + (MOIS_C[mo] || mo));
+const ls = { get: k => { try { return localStorage.getItem(k); } catch (e) { return null; } }, set: (k, v) => { try { localStorage.setItem(k, v); } catch (e) {} }, del: k => { try { localStorage.removeItem(k); } catch (e) {} } };
 
-function saveLocal() { if (TEST) return; try { localStorage.setItem("ptg-recs", JSON.stringify(REAL)); } catch (e) {} }
-// ---- Base Supabase (fonctions SQL protégées par le code d'accès) ----
+// ---------- Connexion à Supabase ----------
 const CFG = window.POINTEUSE_CONFIG || {};
-let CODE = ""; try { CODE = localStorage.getItem("ptg-code") || ""; } catch (e) {}
-// Identité liée au code : { nom, role: admin | responsable | salarie, col: "B" | "F" | "J" | null }
-let WHO = null; try { WHO = JSON.parse(localStorage.getItem("ptg-who") || "null"); } catch (e) {}
-const seesAll = () => !WHO || WHO.role === "admin";
-// rôle de la personne active sur une colonne (renvoyé par la base)
-const colRole = col => { const n = WHO && Array.isArray(WHO.noms) && WHO.noms.find(x => x.col === col); return n ? n.role : null; };
-// modifier les heures : admin partout ; responsable sur sa colonne et celles des salariés ; salarié jamais
-const canEdit = pi => !WHO || WHO.role === "admin" || (WHO.role === "responsable" && (P[pi].start === WHO.col || colRole(P[pi].start) === "salarie"));
-// pointer / signer : sa propre colonne, ou toute colonne qu'on peut modifier
-const canPoint = pi => canEdit(pi) || (!!WHO && P[pi].start === WHO.col);
-const isSalarie = () => !!WHO && WHO.role === "salarie";
-const ownIdx = () => WHO && WHO.col ? P.findIndex(p => p.start === WHO.col) : -1;
-// colonnes visibles : admin = toutes ; responsable = la sienne + les salariés ; salarié = la sienne
-const visible = () => P.map((p, i) => i).filter(i => seesAll() || i === ownIdx() || (WHO.role === "responsable" && colRole(P[i].start) === "salarie"));
-function applyWho() {
-  // prénoms venant de la base (table acces) : priorité sur config.js.
-  // On repart toujours des prénoms de base, sinon un ancien nom (personne supprimée) resterait affiché.
-  for (const p of P) { if (p.base == null) p.base = p.name; p.name = (WHO && Array.isArray(WHO.noms)) ? "Poste vacant" : p.base; }
-  if (WHO && Array.isArray(WHO.noms)) for (const n of WHO.noms) { const p = P.find(q => q.start === n.col); if (p && n.nom) p.name = n.nom; }
-  const v = visible();
-  let chosen = false; try { chosen = !!localStorage.getItem("ptg-me-set"); } catch (e) {}
-  if (!v.includes(me) || (!chosen && ownIdx() >= 0)) me = ownIdx() >= 0 ? ownIdx() : (v[0] || 0);
-  $("who").textContent = WHO ? WHO.nom + " · " + ({ admin: "administrateur", responsable: "responsable", salarie: "accès personnel" })[WHO.role] : "";
-  $("exp").classList.toggle("hide", !seesAll());
-  $("emsg").classList.toggle("hide", !seesAll());
-  // salarié : pas d'onglet Planning (il ne modifie pas les heures)
-  const nb = document.querySelector('nav button[data-v="planning"]'); nb.classList.toggle("hide", isSalarie() && !TEST);
-  if (isSalarie() && !TEST && view === "planning") document.querySelector('nav button[data-v="pointer"]').click();
-  renderAll();
-}
-// Adresse de base Supabase nettoyée : accepte aussi une URL collée avec /rest/v1, un / final
-// ou l'adresse du tableau de bord (supabase.com/dashboard/project/<ref>)
 const API_KEY = String(CFG.supabaseAnonKey || CFG.supabaseKey || "").trim();
 const API_URL = (() => {
   const u = String(CFG.supabaseUrl || "").trim();
@@ -183,145 +143,157 @@ const API_URL = (() => {
   if (m) return "https://" + m[1] + ".supabase.co";
   try { return new URL(u).origin; } catch (e) { return u.replace(/\/+$/, ""); }
 })();
+let CODE = ls.get("ptg-code") || "";
 async function rpc(fn, args) {
   const headers = { "Content-Type": "application/json", apikey: API_KEY };
-  // ancienne clé « anon » (JWT eyJ…) : aussi en Authorization ; nouvelle clé sb_publishable_… : apikey seul
   if (/^eyJ/.test(API_KEY)) headers.Authorization = "Bearer " + API_KEY;
   let r;
-  try { r = await fetch(API_URL + "/rest/v1/rpc/" + fn, { method: "POST", headers, body: JSON.stringify(Object.assign({ p_code: CODE }, args)) }); }
+  try { r = await fetch(API_URL + "/rest/v1/rpc/" + fn, { method: "POST", headers, body: JSON.stringify(Object.assign({ p_code: CODE }, args || {})) }); }
   catch (x) { const e = new Error("réseau"); e.net = true; throw e; }
   if (!r.ok) { const t = await r.text(); const e = new Error(t); e.status = r.status; e.badCode = /code invalide/i.test(t); throw e; }
   return r.status === 204 ? null : r.json();
 }
-// Message clair selon la cause
 function explain(e) {
   if (e.badCode) return "Code incorrect.";
-  const t = e.message || "";
-  if (e.net) return "Serveur injoignable à l'adresse « " + API_URL + " ». Vérifie supabaseUrl dans config.js (forme https://xxxx.supabase.co) et que le projet Supabase n'est pas en pause.";
-  if (e.status === 401 || e.status === 403 || /api key|apikey|JWT/i.test(t)) return "Clé refusée par Supabase (" + e.status + "). Vérifie supabaseAnonKey dans config.js : clé « publishable » (sb_publishable_…) ou « anon » — jamais la clé secrète.";
-  if (e.status === 404 || /PGRST202|Could not find the function/i.test(t)) return "Base pas encore créée : lance supabase/schema.sql dans Supabase (SQL Editor > Run), puis réessaie.";
-  return "Erreur " + (e.status || "") + " : " + t.slice(0, 160);
+  if (e.net) return "Serveur injoignable (" + API_URL + "). Vérifie le réseau et supabaseUrl dans config.js.";
+  try { const m = JSON.parse(e.message).message; if (m && !/Could not find/.test(m)) return m.charAt(0).toUpperCase() + m.slice(1) + "."; } catch (x) {}
+  if (e.status === 401 || e.status === 403) return "Clé refusée par Supabase (" + e.status + "). Vérifie supabaseAnonKey dans config.js.";
+  if (e.status === 404 || /PGRST202|Could not find the function/i.test(e.message)) return "Fonctions absentes dans Supabase : lance le script SQL de mise à jour.";
+  return "Erreur " + (e.status || "") + " : " + String(e.message).slice(0, 160);
 }
-let dirty = {}; try { dirty = JSON.parse(localStorage.getItem("ptg-dirty") || "{}"); } catch (e) {}
-const saveDirty = () => { try { localStorage.setItem("ptg-dirty", JSON.stringify(dirty)); } catch (e) {} };
-async function put(iso, pi, data) {
-  if (!TEST && !canEdit(pi)) { setSync("local", "Lecture seule : modification réservée aux responsables"); return; }
-  const k = recKey(iso, pi);
-  recs[k] = { iso, person: P[pi].name, start: data.start || "", end: data.end || "", sign: data.sign || "" };
-  if (TEST) { renderAll(); return; }
-  dirty[k] = true; saveDirty(); saveLocal(); renderAll();
-  flush();
+
+// ---------- État ----------
+let WHO = null; try { WHO = JSON.parse(ls.get("ptg-who") || "null"); } catch (e) {}
+let P = [], ROWS = [], DAYS = [], me = 0, view = "pointer";
+// DATA = événement affiché (événement, personnes visibles) ; REAL = ses heures
+let DATA = null; try { DATA = JSON.parse(ls.get("ptg-data") || "null"); } catch (e) {}
+let EVT = +ls.get("ptg-evt") || 0;
+let REAL = {}; try { REAL = JSON.parse(ls.get("ptg-recs") || "{}"); } catch (e) {}
+// modifications pas encore envoyées : { "evt|iso_uid": { evt, iso, uid, start, end, sign } }
+let dirty = {}; try { dirty = JSON.parse(ls.get("ptg-dirty") || "{}"); } catch (e) {}
+let TEST = false, TEST_DAY = "", TESTRECS = {}, recs = REAL;
+const saveLocal = () => { ls.set("ptg-recs", JSON.stringify(REAL)); ls.set("ptg-dirty", JSON.stringify(dirty)); ls.set("ptg-data", JSON.stringify(DATA)); ls.set("ptg-evt", EVT); };
+const PER = () => DATA && DATA.evenement && DATA.evenement.id === EVT ? { id: EVT, libelle: DATA.evenement.nom, debut: DATA.evenement.debut, fin: DATA.evenement.fin } : null;
+const EVTS = () => (WHO && WHO.evenements) || [];
+// événement par défaut : celui choisi avant, sinon celui en cours aujourd'hui, sinon le premier
+function pickEvt() {
+  const L = EVTS(); if (L.some(e => e.id === EVT)) return;
+  const t = isoOf(new Date()), now = L.find(e => !e.archive && e.debut <= t && t <= e.fin);
+  EVT = now ? now.id : (L[0] ? L[0].id : 0);
+}
+const role = () => WHO ? WHO.role : null;
+const cur = () => P[me];
+const rec = (iso, p = cur()) => (p && recs[recKey(iso, p.id)]) || {};
+const rowByIso = iso => DAYS.find(d => d.iso === iso);
+function NOW() { const n = new Date(); if (!TEST) return n; const d = dateOf(TEST_DAY); d.setHours(n.getHours(), n.getMinutes(), n.getSeconds()); return d; }
+
+// droits (la base vérifie de nouveau tout ce qui est envoyé)
+const canEdit = p => !!p && !!WHO && (WHO.role === "admin" || (WHO.role === "responsable" && (p.id === WHO.id || p.role === "salarie")));
+const canPoint = p => !!p && !!WHO && (canEdit(p) || p.id === WHO.id);
+
+function applyWho() {
+  P = (DATA && DATA.evenement && DATA.evenement.id === EVT && DATA.personnes) || [];
+  const per = PER();
+  ROWS = per ? buildRows(per.debut, per.fin) : []; DAYS = ROWS.filter(r => r.kind === "day");
+  if (!TEST_DAY || !rowByIso(TEST_DAY)) TEST_DAY = DAYS.length ? DAYS[0].iso : "";
+  const want = +ls.get("ptg-me-uid") || (WHO && WHO.id);
+  me = Math.max(0, P.findIndex(p => p.id === want)); if (me < 0 || !P[me]) me = Math.max(0, P.findIndex(p => WHO && p.id === WHO.id));
+  $("who").textContent = WHO ? WHO.nom + " · " + ({ admin: "administrateur", responsable: "responsable", salarie: "salarié" })[WHO.role] + "" : "";
+  const L = EVTS();
+  $("evsel").innerHTML = L.map(e => '<option value="' + e.id + '"' + (e.id === EVT ? " selected" : "") + ">" + escH(e.nom) + (e.archive ? " (archivé)" : "") + "</option>").join("");
+  $("evsel").classList.toggle("hide", L.length < 2);
+  $("ttl").textContent = per ? per.libelle : "Planning Événements";
+  const sal = role() === "salarie";
+  document.querySelector('nav button[data-v="planning"]').classList.toggle("hide", sal);
+  if (sal && view === "planning") go("pointer");
+  $("admin").classList.toggle("hide", role() !== "admin");
+  planKey = ""; renderAll();
+}
+
+// ---------- Synchronisation ----------
+function setSync(m, txt) { $("dot").className = "dot " + (m === "ok" ? "ok" : m === "loading" ? "" : "loc"); $("synctxt").textContent = txt; }
+let pulling = false;
+async function pull() {
+  if (!CODE || pulling) return; pulling = true;
+  try {
+    const w = await rpc("ptg_me");
+    if (JSON.stringify(w) !== JSON.stringify(WHO)) { WHO = w; ls.set("ptg-who", JSON.stringify(WHO)); }
+    pickEvt();
+    if (!EVT) { DATA = null; REAL = {}; if (!TEST) recs = REAL; saveLocal(); applyWho(); setSync("ok", "Synchronisé"); return; }
+    const evtAsked = EVT, d = await rpc("ptg_data", { p_evt: EVT });
+    if (evtAsked !== EVT) return;  // l'utilisateur a changé d'événement entre-temps
+    const fresh = {};
+    for (const x of d.pointages) fresh[recKey(x.iso, x.uid)] = { iso: x.iso, uid: x.uid, start: x.start || "", end: x.end || "", sign: x.sign || "" };
+    for (const k in dirty) { const x = dirty[k]; if (x.evt === EVT) fresh[recKey(x.iso, x.uid)] = x; }
+    const changed = JSON.stringify({ e: d.evenement, p: d.personnes }) !== JSON.stringify(DATA && { e: DATA.evenement, p: DATA.personnes });
+    DATA = { evenement: d.evenement, personnes: d.personnes };
+    REAL = fresh; if (!TEST) recs = REAL; saveLocal();
+    if (changed) applyWho(); else renderAll();
+    if (!Object.keys(dirty).length) setSync("ok", "Synchronisé");
+    flush();
+  } catch (e) { if (e.badCode) askCode(true); else setSync("local", "Hors ligne — données de ce téléphone affichées"); }
+  finally { pulling = false; }
 }
 let flushing = false;
 async function flush() {
-  if (flushing || !CODE) return; flushing = true;
+  if (flushing || !CODE) return; flushing = true; let sent = 0;
   try {
-    for (const k of Object.keys(dirty)) {
-      const r = REAL[k]; if (!r) { delete dirty[k]; continue; }
-      await rpc("ptg_upsert", { p_id: k, p_iso: r.iso, p_person: r.person, p_start: r.start, p_end: r.end, p_sign: r.sign });
-      delete dirty[k]; saveDirty();
+    for (const k of Object.keys(dirty)) { sent++;
+      const r = dirty[k];
+      await rpc("ptg_upsert", { p_evt: r.evt, p_uid: r.uid, p_iso: r.iso, p_start: r.start, p_end: r.end, p_sign: r.sign });
+      delete dirty[k]; saveLocal();
     }
     setSync("ok", "Synchronisé");
+    if (sent) setTimeout(pull, 50);  // relit la base (ex. mention « modif. le … par … » ajoutée par le serveur)
   } catch (e) {
-    if (e.badCode) return askCode(true);
-    if (/accès refusé|invalide/.test(e.message)) { dirty = {}; saveDirty(); setSync("local", "Modification refusée : tu n'as pas les droits sur ce planning"); flushing = false; pull(); return; }
-    setSync("local", "Hors ligne — " + Object.keys(dirty).length + " saisie(s) en attente d'envoi");
-  }
-  finally { flushing = false; }
+    if (e.badCode) { flushing = false; return askCode(true); }
+    if (e.net) setSync("local", "Hors ligne — " + Object.keys(dirty).length + " modification(s) en attente");
+    else { dirty = {}; saveLocal(); setSync("local", "Refusé : " + explain(e)); pulling = false; setTimeout(pull, 50); }
+  } finally { flushing = false; }
 }
-async function pull() {
-  if (!CODE) return;
-  try {
-    const w = await rpc("ptg_me", {});
-    if (JSON.stringify(w) !== JSON.stringify(WHO)) { WHO = w; try { localStorage.setItem("ptg-who", JSON.stringify(WHO)); } catch (e) {} applyWho(); }
-    const rows = await rpc("ptg_list", {});
-    const fresh = {};
-    for (const x of rows) fresh[x.id] = { iso: x.iso, person: x.person, start: x.start_t || "", end: x.end_t || "", sign: x.sign || "" };
-    for (const k in dirty) if (REAL[k]) fresh[k] = REAL[k];
-    REAL = fresh; if (!TEST) recs = REAL; saveLocal(); renderAll();
-    if (!Object.keys(dirty).length) setSync("ok", "Synchronisé");
-    flush();
-  } catch (e) { if (e.badCode) return askCode(true); setSync("local", "Hors ligne — données de ce téléphone affichées"); }
+// correction d'heures (admin / responsable) : enregistrée localement puis envoyée
+function put(iso, p, data) {
+  if (!TEST && !canEdit(p)) { setSync("local", "Lecture seule : modification réservée aux responsables"); return; }
+  const k = recKey(iso, p.id);
+  recs[k] = { iso, uid: p.id, start: data.start || "", end: data.end || "", sign: data.sign || "" };
+  renderAll(); if (TEST) return;
+  dirty[EVT + "|" + k] = Object.assign({ evt: EVT }, recs[k]); saveLocal(); flush();
 }
+// pointage de son propre compte : l'heure est celle du serveur
+async function pointAction(action, iso) {
+  setSync("loading", "Enregistrement…");
+  try { await rpc("ptg_pointer", { p_evt: EVT, p_action: action, p_iso: iso || null }); setSync("ok", "Enregistré"); pull(); }
+  catch (e) { if (e.badCode) return askCode(true); setSync("local", e.net ? "Pas de réseau : pointage non enregistré, réessaie" : "Refusé : " + explain(e)); renderAll(); }
+}
+function act(action, iso, newRec) {
+  const p = cur();
+  if (!TEST && WHO && p.id === WHO.id) return pointAction(action, iso);
+  put(iso, p, newRec);
+}
+
+// ---------- Connexion ----------
 function askCode(bad) {
-  // code refusé (accès supprimé ou désactivé) : on oublie l'identité gardée sur ce téléphone
-  if (bad) { WHO = null; CODE = ""; try { localStorage.removeItem("ptg-who"); localStorage.removeItem("ptg-code"); } catch (e) {} applyWho(); }
-  $("login").classList.remove("hide");
-  $("lmsg").textContent = bad ? "Code incorrect." : "";
+  if (bad) { WHO = null; CODE = ""; ls.del("ptg-who"); ls.del("ptg-code"); applyWho(); }
+  $("login").classList.remove("hide"); $("lmsg").textContent = bad ? "Code incorrect ou désactivé." : "";
 }
 $("lcode").addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); $("lok").click(); } });
 $("lok").onclick = async () => {
-  CODE = $("lcode").value.trim();
-  if (!CODE) { $("lmsg").textContent = "Saisis ton code."; return; }
-  const btn = $("lok"); if (btn.disabled) return;
-  btn.disabled = true; btn.textContent = "Vérification…"; $("lmsg").textContent = "";
+  CODE = $("lcode").value.trim(); if (!CODE) { $("lmsg").textContent = "Saisis ton code."; return; }
+  const b = $("lok"); if (b.disabled) return; b.disabled = true; b.textContent = "Vérification…"; $("lmsg").textContent = "";
   try {
-    WHO = await rpc("ptg_me", {});
-    // nouveau code sur ce téléphone : on repart d'un cache vide
-    REAL = {}; dirty = {}; if (!TEST) recs = REAL; saveDirty();
-    try { localStorage.setItem("ptg-code", CODE); localStorage.setItem("ptg-who", JSON.stringify(WHO)); localStorage.removeItem("ptg-me-set"); } catch (e) {}
-    $("login").classList.add("hide"); saveLocal(); applyWho(); pull();
-  }
-  catch (e) { $("lmsg").textContent = explain(e); }
-  finally { btn.disabled = false; btn.textContent = "Valider"; }
+    WHO = await rpc("ptg_me");
+    REAL = {}; dirty = {}; DATA = null; EVT = 0; if (!TEST) recs = REAL; saveLocal();
+    ls.set("ptg-code", CODE); ls.set("ptg-who", JSON.stringify(WHO)); ls.del("ptg-me-uid");
+    $("login").classList.add("hide"); applyWho(); pull();
+  } catch (e) { $("lmsg").textContent = explain(e); }
+  finally { b.disabled = false; b.textContent = "Valider"; }
 };
-
-function setSync(m, txt) {
-  mode = m; $("dot").className = "dot " + (m === "ok" ? "ok" : m === "loading" ? "" : "loc"); $("synctxt").textContent = txt;
-}
-
-// ---- Pointeuse ----
-function openShift(now) {
-  // pointage en cours : aujourd'hui, ou la veille (poste de nuit)
-  const t = isoOf(now), y = new Date(now); y.setDate(y.getDate() - 1); const yi = isoOf(y);
-  for (const iso of [t, yi]) { const r = rec(iso); if (r.start && !r.end && rowByIso(iso)) return iso; }
-  return null;
-}
-function renderPointer() {
-  const now = NOW();
-  $("clock").textContent = hm(now);
-  $("today").textContent = now.toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" });
-  const open = openShift(now), t = isoOf(now), row = rowByIso(t);
-  const iso = open || t, r = rec(iso);
-  $("sIn").textContent = r.start || "—"; $("sOut").textContent = r.end || "—";
-  const live = r.start && !r.end ? dayHours(r.start, hm(now)) : dayHours(r.start, r.end);
-  $("sTot").textContent = live == null ? "—" : fmtH(live);
-  const b = $("btn"); let note = "";
-  if (open) { b.disabled = false; b.className = "big out"; b.textContent = "Pointer le départ"; if (open !== t) note = "Poste commencé hier (" + r.start + ") : le départ sera noté sur cette journée."; }
-  else if (!row) {
-    b.disabled = true; b.className = "big"; b.textContent = "Hors période";
-    note = "Le planning couvre du " + DAYS[0].label + " au " + DAYS[DAYS.length - 1].label + '.<br><button class="lnk" onclick="setTest(true)">Essayer en mode test →</button>';
-  }
-  else if (r.start && r.end && !r.sign) { b.disabled = false; b.className = "big"; b.textContent = "Signer la journée"; }
-  else if (r.start && r.end) { b.disabled = true; b.className = "big"; b.textContent = "Journée signée ✓"; note = r.sign; }
-  else { b.disabled = false; b.className = "big"; b.textContent = "Pointer l'arrivée"; }
-  if (!canPoint(me)) { b.disabled = true; b.className = "big"; b.textContent = "Lecture seule"; }
-  $("pnote").innerHTML = note ? '<div class="note"' + (note === r.sign ? ' style="background:var(--acc2);color:var(--acc)"' : "") + '>' + note + '</div>' : "";
-  const W = weekOf(row ? row.iso : DAYS[0].iso), wk = W.days, tot = W.tot;
-  let h = "<tr><th>" + (tot ? nice(tot.label) : "") + "</th><th>Arr.</th><th>Dép.</th><th>Durée</th><th>Sig.</th></tr>";
-  for (const d of wk) { const x = rec(d.iso); h += "<tr><td style='text-transform:capitalize'>" + d.label.replace(/ \d{4}$/, "") + "</td><td>" + (x.start || "") + "</td><td>" + (x.end || "") + "</td><td>" + (dayHours(x.start, x.end) == null ? "" : fmtH(dayHours(x.start, x.end))) + "</td><td style='color:var(--acc)'>" + (x.sign ? "✓" : "") + "</td></tr>"; }
-  if (tot) { const v = computeValues(recs)[P[me].total + tot.r]; h += "<tr class='strong'><td>Total</td><td></td><td></td><td>" + fmtH(v || 0) + "</td><td></td></tr>"; }
-  $("mini").innerHTML = h;
-}
-// Un salarié pointe via la base : l'heure enregistrée est celle du serveur, pas celle du téléphone
-async function pointAction(action, iso) {
-  try { await rpc("ptg_pointer", { p_action: action, p_iso: iso || null }); setSync("ok", "Enregistré"); pull(); }
-  catch (e) {
-    if (e.badCode) return askCode(true);
-    const m = /(arrivée déjà pointée|aucune arrivée en cours|journée incomplète|déjà signée|date invalide)/.exec(e.message || "");
-    setSync("local", m ? "Refusé : " + m[1] : (e.net ? "Pas de réseau : pointage non enregistré, réessaie" : "Erreur : pointage non enregistré"));
-    renderAll();
-  }
-}
-function act(action, iso, newRec) {
-  if (!TEST && isSalarie()) return pointAction(action, iso);
-  put(iso, me, newRec);
-}
-$("btn").onclick = () => {
-  const now = NOW(), open = openShift(now), t = isoOf(now);
-  if (open) { const r = rec(open); confirmBox("Départ de <b>" + P[me].name + "</b> à <b>" + hm(now) + "</b> ?", () => act("depart", open, Object.assign({}, r, { end: hm(now) }))); }
-  else if (rowByIso(t) && rec(t).start && rec(t).end) { const r = rec(t); if (!r.sign) confirmBox("Signer la journée de <b>" + P[me].name + "</b> (" + r.start + " → " + r.end + ") ?", () => act("signer", t, Object.assign({}, r, { sign: "✓ " + P[me].name + " " + ddmm(now) + " " + hm(now) }))); }
-  else if (rowByIso(t)) { const r = rec(t); confirmBox("Arrivée de <b>" + P[me].name + "</b> à <b>" + hm(now) + "</b> ?", () => act("arrivee", t, Object.assign({}, r, { start: hm(now) }))); }
+$("logout").onclick = () => {
+  const n = Object.keys(dirty).length;
+  confirmBox((n ? "<b>" + n + " modification(s) pas encore envoyée(s)</b> seront perdues.<br>" : "") + "Se déconnecter de ce téléphone ?", () => {
+    CODE = ""; WHO = null; REAL = {}; dirty = {}; DATA = null; EVT = 0; recs = REAL; ["ptg-code", "ptg-who", "ptg-recs", "ptg-dirty", "ptg-me-uid", "ptg-data", "ptg-evt"].forEach(ls.del);
+    applyWho(); askCode(false);
+  });
 };
 function confirmBox(html, ok) {
   $("mtxt").innerHTML = '<div style="font-size:18px;text-align:center;padding:6px 0">' + html + "</div>";
@@ -330,182 +302,227 @@ function confirmBox(html, ok) {
   $("myes").onclick = () => { $("modal").classList.add("hide"); ok(); };
 }
 
-// ---- Planning ----
-function buildPlanning() {
-  let h = "";
-  const todayIso = isoOf(NOW());
-  for (const W of WEEKS) {
-    h += '<h3><span>' + (W.tot ? nice(W.tot.label) : "") + '</span><span' + (W.tot ? ' data-tot="' + W.tot.r + '"' : "") + '></span></h3>';
-    for (const d of W.days) {
-      h += '<div class="day' + (d.iso === todayIso ? " today" : "") + '" id="d-' + d.iso + '"><div class="lbl">' + d.label.replace(/ \d{4}$/, "") + '</div><div class="tot" data-dt></div>' +
+// ---------- Pointer ----------
+function openShift(now) {
+  const t = isoOf(now), y = new Date(now); y.setDate(y.getDate() - 1); const yi = isoOf(y);
+  for (const iso of [t, yi]) { const r = rec(iso); if (r.start && !r.end && rowByIso(iso)) return iso; }
+  return null;
+}
+function weekOf(iso) { let start = 0; for (let i = 0; i < ROWS.length; i++) { if (ROWS[i].kind === "week") { if (ROWS[i].days.includes(iso)) return ROWS[i]; } } return null; }
+function renderPointer() {
+  const now = NOW(), p = cur();
+  $("clock").textContent = hm(now);
+  $("today").textContent = now.toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" });
+  const b = $("btn"); let note = "";
+  if (!p) { b.disabled = true; b.className = "big"; b.textContent = WHO ? "Aucun planning" : "Connexion…"; $("pnote").innerHTML = ""; $("mini").innerHTML = ""; ["sIn", "sOut", "sTot"].forEach(i => $(i).textContent = "—"); return; }
+  const open = openShift(now), t = isoOf(now), iso = open || t, r = rec(iso);
+  $("sIn").textContent = r.start || "—"; $("sOut").textContent = r.end || "—";
+  const live = r.start && !r.end ? dayHours(r.start, hm(now)) : dayHours(r.start, r.end);
+  $("sTot").textContent = live == null ? "—" : fmtH(live);
+  if (!PER()) { b.disabled = true; b.className = "big"; b.textContent = "Aucun événement"; note = "Tu n'es affecté à aucun événement en cours. L'administrateur gère les équipes."; }
+  else if (open) { b.disabled = false; b.className = "big out"; b.textContent = "Pointer le départ"; if (open !== t) note = "Poste commencé hier (" + r.start + ") : le départ sera noté sur cette journée."; }
+  else if (!rowByIso(t)) { b.disabled = true; b.className = "big"; b.textContent = "Hors dates"; note = "« " + escH(PER().libelle) + " » a lieu du " + longDate(PER().debut) + " au " + longDate(PER().fin) + '.<br><button class="lnk" id="gotest">Essayer en mode test →</button>'; }
+  else if (r.start && r.end && !r.sign) { b.disabled = false; b.className = "big"; b.textContent = "Signer la journée"; }
+  else if (r.start && r.end) { b.disabled = true; b.className = "big"; b.textContent = "Journée signée ✓"; note = escH(r.sign); }
+  else { b.disabled = false; b.className = "big"; b.textContent = "Pointer l'arrivée"; }
+  if (!TEST && !canPoint(p)) { b.disabled = true; b.className = "big"; b.textContent = "Lecture seule"; }
+  $("pnote").innerHTML = note ? '<div class="note"' + (note === escH(r.sign) ? ' style="background:var(--acc2);color:var(--acc)"' : "") + ">" + note + "</div>" : "";
+  const gt = $("gotest"); if (gt) gt.onclick = () => setTest(true);
+  const W = weekOf(rowByIso(t) ? t : (DAYS[0] || {}).iso);
+  let h = "<tr><th>" + (W ? nice(W.label) : "") + "</th><th>Arr.</th><th>Dép.</th><th>Durée</th><th>Sig.</th></tr>";
+  if (W) { for (const d of W.days) { const x = rec(d), dh = dayHours(x.start, x.end); h += "<tr><td style='text-transform:capitalize'>" + short(rowByIso(d).label) + "</td><td>" + (x.start || "") + "</td><td>" + (x.end || "") + "</td><td>" + (dh == null ? "" : fmtH(dh)) + "</td><td style='color:var(--acc)'>" + (x.sign ? "✓" : "") + "</td></tr>"; }
+    h += "<tr class='strong'><td>Total</td><td></td><td></td><td>" + fmtH(sumHours(recs, p.id, W.days)) + "</td><td></td></tr>"; }
+  $("mini").innerHTML = h;
+}
+$("btn").onclick = () => {
+  const now = NOW(), open = openShift(now), t = isoOf(now), p = cur();
+  if (open) { const r = rec(open); confirmBox("Départ de <b>" + escH(p.nom) + "</b> à <b>" + hm(now) + "</b> ?", () => act("depart", open, Object.assign({}, r, { end: hm(now) }))); }
+  else if (rowByIso(t) && rec(t).start && rec(t).end) { const r = rec(t); if (!r.sign) confirmBox("Signer la journée de <b>" + escH(p.nom) + "</b> (" + r.start + " → " + r.end + ") ?", () => act("signer", t, Object.assign({}, r, { sign: "✓ " + p.nom + " " + ddmm(now) + " " + hm(now) }))); }
+  else if (rowByIso(t)) { const r = rec(t); confirmBox("Arrivée de <b>" + escH(p.nom) + "</b> à <b>" + hm(now) + "</b> ?", () => act("arrivee", t, Object.assign({}, r, { start: hm(now) }))); }
+};
+
+// ---------- Planning (corrections : admin / responsable) ----------
+let planKey = "";
+function renderPlanning() {
+  const p = cur(), per = PER(), key = (per ? per.id + per.debut + per.fin : "") + (TEST ? "T" + TEST_DAY : "");
+  if (key !== planKey) {
+    planKey = key; let h = "", todayIso = isoOf(NOW()), block = [];
+    for (const x of ROWS) {
+      if (x.kind === "day") { block.push(x); continue; }
+      if (x.kind !== "week") continue;
+      h += '<h3><span>' + nice(x.label) + '</span><span data-wt="' + x.days[0] + '"></span></h3>';
+      for (const d of block) h += '<div class="day' + (d.iso === todayIso ? " today" : "") + '" id="d-' + d.iso + '"><div class="lbl">' + short(d.label) + '</div><div class="tot" data-dt></div>' +
         '<div class="times"><input type="time" data-iso="' + d.iso + '" data-f="start" aria-label="Arrivée"><span>→</span><input type="time" data-iso="' + d.iso + '" data-f="end" aria-label="Départ"><button class="clr" data-clr="' + d.iso + '" aria-label="Effacer">×</button></div>' +
         '<div class="sg"><button data-sg="' + d.iso + '">Signer</button><span data-sgt></span></div></div>';
+      block = [];
     }
+    $("weeks").innerHTML = h || "<div class='card'>Aucun événement.</div>";
   }
-  $("weeks").innerHTML = h; planBuilt = true;
-}
-// écouteurs posés une seule fois (sinon ils s'empilent à chaque reconstruction)
-  $("weeks").addEventListener("change", e => {
-    const i = e.target; if (!i.dataset.iso) return;
-    const r = Object.assign({}, rec(i.dataset.iso)); r[i.dataset.f] = i.value; put(i.dataset.iso, me, r);
-  });
-$("weeks").addEventListener("click", e => {
-    const b = e.target.closest("button"); if (!b) return;
-    if (b.dataset.clr) { const iso = b.dataset.clr; confirmBox("Effacer la journée du " + rowByIso(iso).label + " pour " + P[me].name + " ?", () => put(iso, me, {})); }
-    if (b.dataset.sg) {
-      const iso = b.dataset.sg, r = Object.assign({}, rec(iso));
-      if (r.sign) confirmBox("Retirer la signature ?", () => { r.sign = ""; put(iso, me, r); });
-      else { const n = NOW(); r.sign = "✓ " + P[me].name + " " + ddmm(n) + " " + hm(n); put(iso, me, r); }
-    }
-  });
-
-function renderPlanning() {
-  if (!planBuilt) buildPlanning();
-  const vals = computeValues(recs);
+  if (!p) return;
   for (const d of DAYS) {
-    const el = $("d-" + d.iso), r = rec(d.iso);
+    const el = $("d-" + d.iso); if (!el) continue; const r = rec(d.iso);
     for (const i of el.querySelectorAll("input")) if (document.activeElement !== i) i.value = r[i.dataset.f] || "";
-    const h = dayHours(r.start, r.end);
-    el.querySelector("[data-dt]").textContent = h == null ? "" : fmtH(h);
+    const dh = dayHours(r.start, r.end); el.querySelector("[data-dt]").textContent = dh == null ? "" : fmtH(dh);
     const sb = el.querySelector("[data-sg]"); sb.className = r.sign ? "on" : ""; sb.textContent = r.sign ? "Signé" : "Signer";
     el.querySelector("[data-sgt]").textContent = r.sign || "";
   }
-  for (const s of $("weeks").querySelectorAll("[data-tot]")) s.textContent = fmtH(vals[P[me].total + s.dataset.tot] || 0);
+  for (const s of $("weeks").querySelectorAll("[data-wt]")) { const W = weekOf(s.dataset.wt); s.textContent = W ? fmtH(sumHours(recs, p.id, W.days)) : ""; }
 }
-
-// ---- Totaux ----
-function renderDetail() {
-  // détail jour par jour de la personne sélectionnée, avec total de chaque semaine
-  const p = P[me], mine = canPoint(me);
-  let h = "<b>Détail — " + p.name + "</b><table style='margin-top:8px'><tr><th>Jour</th><th>Arr.</th><th>Dép.</th><th>Durée</th><th>Sig.</th></tr>", tot = 0;
-  for (const W of WEEKS) {
-    let wk = 0;
-    for (const d of W.days) {
-      const x = rec(d.iso), dh = dayHours(x.start, x.end); if (dh != null) wk += dh;
-      const signable = mine && x.start && x.end && !x.sign && d.iso <= isoOf(NOW());
-      h += "<tr><td style='text-transform:capitalize'>" + d.label.replace(/ \d{4}$/, "").replace(/ (novembre|décembre)/, m => m.slice(0, 4) + ".") + "</td><td>" + (x.start || "") + "</td><td>" + (x.end || "") + "</td><td>" + (dh == null ? "" : fmtH(dh)) + "</td><td>" + (x.sign ? "<span style='color:var(--acc)'>✓</span>" : signable ? "<button class='lnk' style='padding:0' data-sig='" + d.iso + "'>Signer</button>" : "") + "</td></tr>";
-    }
-    tot += wk;
-    h += "<tr class='strong'><td>" + (W.tot ? nice(W.tot.label) : "") + "</td><td></td><td></td><td>" + fmtH(wk) + "</td><td></td></tr>";
-  }
-  h += "<tr class='strong'><td>Total</td><td></td><td></td><td>" + fmtH(tot) + "</td><td></td></tr></table>";
-  h += "<button class='big' id='expd' style='font-size:17px;padding:16px'>Exporter le détail (.xlsx)</button>";
-  $("detail").innerHTML = h;
-}
-$("detail").addEventListener("click", e => {
-  const b = e.target.closest("button"); if (!b) return;
-  if (b.id === "expd") return saveFile(buildDetailXlsx(recs, me), "Heures_" + P[me].name.replace(/[^A-Za-z0-9À-ÿ_-]/g, "_") + "_" + isoOf(new Date()) + ".xlsx");
-  if (b.dataset.sig) { const iso = b.dataset.sig, r = rec(iso); confirmBox("Signer la journée du " + rowByIso(iso).label + " ?", () => act("signer", iso, Object.assign({}, r, { sign: "✓ " + P[me].name + " " + ddmm(NOW()) + " " + hm(NOW()) }))); }
+$("weeks").addEventListener("change", e => {
+  const i = e.target; if (!i.dataset.iso) return;
+  const r = Object.assign({}, rec(i.dataset.iso)); r[i.dataset.f] = i.value; put(i.dataset.iso, cur(), r);
 });
+$("weeks").addEventListener("click", e => {
+  const b = e.target.closest("button"); if (!b) return; const p = cur();
+  if (b.dataset.clr) { const iso = b.dataset.clr; confirmBox("Effacer la journée du " + rowByIso(iso).label + " pour " + escH(p.nom) + " ?", () => put(iso, p, {})); }
+  if (b.dataset.sg) {
+    const iso = b.dataset.sg, r = Object.assign({}, rec(iso));
+    if (r.sign) confirmBox("Retirer la signature ?", () => { r.sign = ""; put(iso, p, r); });
+    else { const n = NOW(); r.sign = "✓ " + p.nom + " " + ddmm(n) + " " + hm(n); put(iso, p, r); }
+  }
+});
+
+// ---------- Totaux, détail et export ----------
 function saveFile(bytes, name) {
   const a = document.createElement("a");
   a.href = URL.createObjectURL(new Blob([bytes], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }));
   a.download = name; document.body.appendChild(a); a.click(); a.remove();
   setTimeout(() => URL.revokeObjectURL(a.href), 10000);
 }
+const fileName = s => s.replace(/[^A-Za-z0-9À-ÿ_-]+/g, "_");
 function renderExport() {
-  renderDetail();
-  // Gestion des utilisateurs : administrateur uniquement
-  const adm = !!WHO && WHO.role === "admin";
-  $("noms").classList.toggle("hide", !adm);
-  if (adm) loadUsers();
-  const vals = computeValues(recs);
-  const V = visible().map(i => P[i]);
-  let h = "<tr><th></th>" + V.map(p => "<th>" + p.name + "</th>").join("") + "</tr>";
-  for (const row of META.rows.filter(r => r.kind === "total")) {
-    const strong = !/SEMAINE/.test(row.label);
-    h += "<tr" + (strong ? " class='strong'" : "") + "><td>" + row.label.replace("TOTAL ", "").toLowerCase().replace(/^./, c => c.toUpperCase()) + "</td>" + V.map(p => "<td>" + fmtH(vals[p.total + row.r] || 0) + "</td>").join("") + "</tr>";
+  const per = PER();
+  if (!per) { $("sum").innerHTML = "<tr><td>Aucun événement.</td></tr>"; $("detail").innerHTML = ""; }
+  else {
+    let h = "<tr><th></th>" + P.map(p => "<th>" + escH(p.nom) + "</th>").join("") + "</tr>";
+    const allDays = DAYS.map(d => d.iso);
+    for (const x of ROWS) {
+      if (x.kind === "day") continue;
+      const days = x.kind === "total" ? allDays : x.days;
+      h += "<tr" + (x.kind === "week" ? "" : " class='strong'") + "><td>" + nice(x.label) + "</td>" + P.map(p => "<td>" + fmtH(sumHours(recs, p.id, days)) + "</td>").join("") + "</tr>";
+    }
+    $("sum").innerHTML = h;
+    renderDetail();
   }
-  $("sum").innerHTML = h + "<tr><td colspan='" + (V.length + 1) + "' style='color:var(--mut);font-size:12px;text-align:left;border:0'>Mêmes valeurs et même format que dans l'Excel.</td></tr>";
+  if (role() === "admin") { loadAdmin(); }
 }
-// ---- Utilisateurs (admin) ----
-let USERS = null, usersLoading = false, NMSG = "";
-const escH = t => String(t == null ? "" : t).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/"/g, "&quot;");
-// message lisible renvoyé par la base (PostgREST renvoie {"message": "..."})
-function dbMsg(e) {
-  if (e.badCode) return "Code refusé.";
-  try { const m = JSON.parse(e.message).message; if (m) return m.charAt(0).toUpperCase() + m.slice(1) + "."; } catch (x) {}
-  return explain(e);
+function renderDetail() {
+  const p = cur(); if (!p) { $("detail").innerHTML = ""; return; }
+  const mine = canPoint(p), today = isoOf(NOW());
+  let h = "<b>Détail — " + escH(p.nom) + "</b><table style='margin-top:8px'><tr><th>Jour</th><th>Arr.</th><th>Dép.</th><th>Durée</th><th>Sig.</th></tr>";
+  for (const x of ROWS) {
+    if (x.kind === "day") {
+      const r = rec(x.iso), dh = dayHours(r.start, r.end), signable = mine && r.start && r.end && !r.sign && x.iso <= today;
+      h += "<tr><td style='text-transform:capitalize'>" + short(x.label) + "</td><td>" + (r.start || "") + "</td><td>" + (r.end || "") + "</td><td>" + (dh == null ? "" : fmtH(dh)) + "</td><td>" +
+        (r.sign ? "<span style='color:var(--acc)'>✓</span>" : signable ? "<button class='lnk' style='padding:0' data-sig='" + x.iso + "'>Signer</button>" : "") + "</td></tr>";
+    } else {
+      const days = x.kind === "total" ? DAYS.map(d => d.iso) : x.days;
+      h += "<tr class='strong'><td>" + nice(x.label) + "</td><td></td><td></td><td>" + fmtH(sumHours(recs, p.id, days)) + "</td><td></td></tr>";
+    }
+  }
+  $("detail").innerHTML = h + "</table><button class='big' id='expd' style='font-size:17px;padding:16px'>Exporter le détail (.xlsx)</button>";
 }
-async function loadUsers(force) {
-  if (usersLoading || (USERS && !force)) return renderUsers();
-  usersLoading = true;
-  try { USERS = await rpc("ptg_users", {}); } catch (e) { $("noms").innerHTML = "<b>Utilisateurs</b><div class='msg' style='color:var(--warn)'>" + escH(dbMsg(e)) + "</div>"; usersLoading = false; return; }
-  usersLoading = false; renderUsers();
-}
-function userBlock(u) {
-  const sel = (v, opts) => opts.map(([k, l]) => '<option value="' + k + '"' + (k === (v || "") ? " selected" : "") + ">" + l + "</option>").join("");
-  const st = "font:inherit;font-size:15px;padding:7px;border:1px solid var(--line);border-radius:10px;background:var(--bg);color:var(--ink);min-width:0";
-  return '<div class="usr" data-old="' + escH(u.code || "") + '" style="border-top:1px solid var(--line);padding:10px 0;display:grid;grid-template-columns:1fr 1fr;gap:6px">' +
-    '<input data-k="nom" placeholder="Prénom" value="' + escH(u.nom) + '" maxlength="40" style="' + st + '">' +
-    '<input data-k="code" placeholder="Code (8 car. min.)" value="' + escH(u.code) + '" style="' + st + '">' +
-    '<select data-k="role" style="' + st + '">' + sel(u.role || "salarie", [["salarie", "Salarié"], ["responsable", "Responsable"], ["admin", "Administrateur"]]) + "</select>" +
-    '<select data-k="col" style="' + st + '">' + sel(u.col, [["", "Sans colonne"], ["B", "Colonne B (1re)"], ["F", "Colonne F (2e)"], ["J", "Colonne J (3e)"]]) + "</select>" +
-    '<label style="display:flex;align-items:center;gap:6px;font-size:14px"><input type="checkbox" data-k="actif"' + (u.actif === false ? "" : " checked") + "> Actif</label>" +
-    '<button class="lnk" data-save style="text-align:right">' + (u.code ? "Enregistrer" : "Créer") + "</button></div>";
-}
-function renderUsers() {
-  if (!USERS || $("noms").contains(document.activeElement)) return;
-  $("noms").innerHTML = "<b>Utilisateurs</b>" + USERS.map(userBlock).join("") +
-    "<div style='margin-top:8px;font-weight:600;font-size:14px;color:var(--mut)'>Nouvel utilisateur</div>" + userBlock({ actif: true }) + "<div class='msg' id='nmsg'>" + escH(NMSG) + "</div>";
-}
-$("noms").addEventListener("click", async e => {
-  const b = e.target.closest("[data-save]"); if (!b) return;
-  const box = b.closest(".usr"), v = k => box.querySelector('[data-k="' + k + '"]');
-  const old = box.dataset.old, code = v("code").value.trim();
-  b.disabled = true; NMSG = ""; $("nmsg").textContent = "Enregistrement…";
-  try {
-    await rpc("ptg_user_save", { p_old_code: old || null, p_new_code: code, p_nom: v("nom").value, p_role: v("role").value, p_col: v("col").value, p_actif: v("actif").checked });
-    // si l'admin a changé son propre code, on garde la session ouverte avec le nouveau
-    if (old && old === CODE) { CODE = code; try { localStorage.setItem("ptg-code", CODE); } catch (x) {} }
-    document.activeElement.blur(); NMSG = "Enregistré."; USERS = null; await loadUsers(true); pull();
-  } catch (x) { NMSG = dbMsg(x); $("nmsg").textContent = NMSG; }
-  finally { b.disabled = false; }
+$("detail").addEventListener("click", e => {
+  const b = e.target.closest("button"); if (!b) return; const p = cur();
+  if (b.id === "expd") return saveFile(buildPlanningXlsx(recs, PER(), [p]), "Heures_" + fileName(p.nom) + "_" + fileName(PER().libelle) + ".xlsx");
+  if (b.dataset.sig) { const iso = b.dataset.sig, r = rec(iso); confirmBox("Signer la journée du " + rowByIso(iso).label + " ?", () => act("signer", iso, Object.assign({}, r, { sign: "✓ " + p.nom + " " + ddmm(NOW()) + " " + hm(NOW()) }))); }
 });
 $("exp").onclick = () => {
-  const m = $("emsg");
-  try {
-    const blob = new Blob([buildXlsx(recs)], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
-    const a = document.createElement("a");
-    a.href = URL.createObjectURL(blob);
-    a.download = META.filename.replace(/\.xlsx$/, "") + "_" + isoOf(new Date()) + ".xlsx";
-    document.body.appendChild(a); a.click(); a.remove();
-    setTimeout(() => URL.revokeObjectURL(a.href), 10000);
-    m.textContent = "Fichier téléchargé.";
-  } catch (e) { m.textContent = "Échec : " + e.message; }
+  try { saveFile(buildPlanningXlsx(recs, PER(), P), "Planning_" + fileName(PER().libelle) + ".xlsx"); $("emsg").textContent = "Fichier téléchargé."; }
+  catch (e) { $("emsg").textContent = "Échec : " + e.message; }
 };
 
-// ---- Navigation & rendu ----
-let view = "pointer";
+// ---------- Administration : périodes et utilisateurs ----------
+let ADM = { users: null, evts: null, msgU: "", msgE: "", loading: false };
+async function loadAdmin(force) {
+  if (ADM.loading) return;
+  if (!force && ADM.users && ADM.evts) return renderAdmin();
+  ADM.loading = true;
+  try { [ADM.users, ADM.evts] = await Promise.all([rpc("ptg_users"), rpc("ptg_evenements")]); }
+  catch (e) { ADM.msgU = ADM.msgE = explain(e); }
+  ADM.loading = false; renderAdmin();
+}
+function renderAdmin() {
+  const sel = (v, opts) => opts.map(([k, l]) => '<option value="' + k + '"' + (String(k) === String(v == null ? "" : v) ? " selected" : "") + ">" + l + "</option>").join("");
+  const users = (ADM.users || []).filter(u => u.actif);
+  if (!$("periodes").contains(document.activeElement)) {
+    const it = q => {
+      const eq = {}; for (const m of (q.equipe || [])) eq[m.uid] = m.ordre;
+      return '<div class="it" data-id="' + (q.id || "") + '"><input data-k="nom" placeholder="Nom (ex. Salon de Lille 2027)" value="' + escH(q.nom) + '" style="grid-column:1/-1">' +
+        '<label class="full">Du <input type="date" data-k="debut" value="' + escH(q.debut) + '"></label><label class="full">au <input type="date" data-k="fin" value="' + escH(q.fin) + '"></label>' +
+        '<div style="grid-column:1/-1;font-size:13px;color:var(--mut)">Équipe (case cochée) et place dans l\'Excel :</div>' +
+        users.map(u => '<label class="full eq" data-uid="' + u.id + '"><input type="checkbox" data-k="in"' + (u.id in eq ? " checked" : "") + '> <span style="flex:1">' + escH(u.nom) + ' <small style="color:var(--mut)">' + ({ admin: "admin", responsable: "resp.", salarie: "salarié" })[u.role] + '</small></span><input type="number" min="1" max="99" data-k="ordre" placeholder="place" value="' + escH(eq[u.id]) + '" style="max-width:80px"></label>').join("") +
+        '<label><input type="checkbox" data-k="archive"' + (q.archive ? " checked" : "") + "> Archivé</label><button class='lnk' data-save style='text-align:right'>" + (q.id ? "Enregistrer" : "Créer") + "</button></div>";
+    };
+    $("periodes").innerHTML = "<b>Événements</b><div style='font-size:13px;color:var(--mut)'>Plusieurs événements peuvent avoir lieu en même temps. Chacun ne voit que ceux de son équipe ; un événement archivé disparaît pour les non-admins.</div>" +
+      (ADM.evts || []).map(it).join("") + "<div class='sub'>Nouvel événement</div>" + it({}) + "<div class='msg'>" + escH(ADM.msgE) + "</div>";
+  }
+  if (!$("users").contains(document.activeElement)) {
+    const it = u => '<div class="it" data-id="' + (u.id || "") + '"><input data-k="nom" placeholder="Prénom" value="' + escH(u.nom) + '" maxlength="40"><input data-k="code" placeholder="Code (8 car. min.)" value="' + escH(u.code) + '">' +
+      '<select data-k="role">' + sel(u.role || "salarie", [["salarie", "Salarié"], ["responsable", "Responsable"], ["admin", "Administrateur"]]) + "</select>" +
+      '<label><input type="checkbox" data-k="actif"' + (u.actif === false ? "" : " checked") + "> Actif</label><span></span><button class='lnk' data-save style='text-align:right'>" + (u.id ? "Enregistrer" : "Créer") + "</button></div>";
+    $("users").innerHTML = "<b>Comptes</b><div style='font-size:13px;color:var(--mut)'>Le rôle vaut pour tous les événements. L'affectation aux événements se fait dans « Événements ».</div>" +
+      (ADM.users || []).map(it).join("") + "<div class='sub'>Nouveau compte</div>" + it({ actif: true }) + "<div class='msg'>" + escH(ADM.msgU) + "</div>";
+  }
+}
+$("periodes").addEventListener("click", async e => {
+  const b = e.target.closest("[data-save]"); if (!b) return;
+  const box = b.closest(".it"), v = k => box.querySelector('[data-k="' + k + '"]');
+  const equipe = [...box.querySelectorAll(".eq")].filter(l => l.querySelector('[data-k="in"]').checked)
+    .map(l => ({ uid: +l.dataset.uid, ordre: l.querySelector('[data-k="ordre"]').value ? +l.querySelector('[data-k="ordre"]').value : null }));
+  b.disabled = true;
+  try {
+    const id = await rpc("ptg_evenement_save", { p_id: box.dataset.id ? +box.dataset.id : null, p_nom: v("nom").value, p_debut: v("debut").value || null, p_fin: v("fin").value || null, p_archive: v("archive").checked, p_equipe: equipe });
+    ADM.msgE = "Enregistré."; document.activeElement.blur(); await loadAdmin(true); pull();
+  } catch (x) { ADM.msgE = explain(x); renderAdmin(); }
+  finally { b.disabled = false; }
+});
+$("users").addEventListener("click", async e => {
+  const b = e.target.closest("[data-save]"); if (!b) return;
+  const box = b.closest(".it"), v = k => box.querySelector('[data-k="' + k + '"]'), id = box.dataset.id ? +box.dataset.id : null, code = v("code").value.trim();
+  b.disabled = true;
+  try {
+    await rpc("ptg_user_save", { p_id: id, p_new_code: code, p_nom: v("nom").value, p_role: v("role").value, p_actif: v("actif").checked });
+    if (WHO && id === WHO.id && code !== CODE) { CODE = code; ls.set("ptg-code", CODE); }
+    ADM.msgU = "Enregistré."; document.activeElement.blur(); await loadAdmin(true); pull();
+  } catch (x) { ADM.msgU = explain(x); renderAdmin(); }
+  finally { b.disabled = false; }
+});
+
+// ---------- Mode test ----------
+function setTest(on) {
+  TEST = on; recs = on ? TESTRECS : REAL; document.body.classList.toggle("test", on);
+  if (on) $("tday").innerHTML = DAYS.map(d => '<option value="' + d.iso + '"' + (d.iso === TEST_DAY ? " selected" : "") + ">" + short(d.label) + "</option>").join("");
+  planKey = ""; renderAll();
+}
+$("tday").onchange = e => { TEST_DAY = e.target.value; planKey = ""; renderAll(); };
+$("tclear").onclick = () => { TESTRECS = {}; recs = TESTRECS; renderAll(); };
+$("tquit").onclick = () => setTest(false);
+
+$("evsel").onchange = e => { EVT = +e.target.value; DATA = null; REAL = {}; if (!TEST) recs = REAL; ls.del("ptg-me-uid"); saveLocal(); applyWho(); setSync("loading", "Chargement…"); pulling = false; pull(); };
+// ---------- Navigation et rendu ----------
 function renderAll() {
-  $("chips").innerHTML = visible().map(i => '<button class="chip' + (i === me ? " on" : "") + '" data-p="' + i + '">' + P[i].name + (canPoint(i) ? "" : " 👁") + "</button>").join("");
-  document.body.classList.toggle("ro", !canEdit(me));
+  $("chips").innerHTML = P.map((p, i) => '<button class="chip' + (i === me ? " on" : "") + '" data-p="' + i + '">' + escH(p.nom) + (p.actif === false ? " (ancien)" : "") + (canPoint(p) || TEST ? "" : " 👁") + "</button>").join("");
+  $("chips").style.flexWrap = "wrap";
+  document.body.classList.toggle("ro", !TEST && !canEdit(cur()));
   if (view === "pointer") renderPointer(); if (view === "planning") renderPlanning(); if (view === "export") renderExport();
 }
-$("chips").onclick = e => { const b = e.target.closest("[data-p]"); if (!b) return; me = +b.dataset.p; try { localStorage.setItem("ptg-me", me); localStorage.setItem("ptg-me-set", "1"); } catch (x) {} renderAll(); };
-document.querySelector("nav").onclick = e => {
-  const b = e.target.closest("button"); if (!b) return; view = b.dataset.v;
-  for (const x of document.querySelectorAll("nav button")) x.classList.toggle("on", x === b);
-  for (const v of ["pointer", "planning", "export"]) $("v-" + v).classList.toggle("hide", v !== view);
+$("chips").onclick = e => { const b = e.target.closest("[data-p]"); if (!b) return; me = +b.dataset.p; ls.set("ptg-me-uid", P[me].id); renderAll(); };
+function go(v) {
+  view = v;
+  for (const x of document.querySelectorAll("nav button")) x.classList.toggle("on", x.dataset.v === v);
+  for (const s of ["pointer", "planning", "export"]) $("v-" + s).classList.toggle("hide", s !== v);
   renderAll();
-  if (view === "planning") { const t = $("d-" + isoOf(NOW())); if (t) t.scrollIntoView({ block: "center" }); }
-};
-$("ttl").textContent = "Planning · Béthune";
+  if (v === "planning") { const t = $("d-" + isoOf(NOW())); if (t) t.scrollIntoView({ block: "center" }); }
+}
+document.querySelector("nav").onclick = e => { const b = e.target.closest("button"); if (b) go(b.dataset.v); };
 setInterval(() => { if (view === "pointer") renderPointer(); }, 15000);
-renderAll();
 
-$("logout").onclick = () => {
-  const n = Object.keys(dirty).length;
-  confirmBox((n ? "<b>" + n + " saisie(s) pas encore envoyée(s)</b> seront perdues.<br>" : "") + "Se déconnecter de ce téléphone ?", () => {
-    CODE = ""; WHO = null; REAL = {}; dirty = {}; if (!TEST) recs = REAL;
-    try { ["ptg-code", "ptg-who", "ptg-recs", "ptg-dirty", "ptg-me-set"].forEach(k => localStorage.removeItem(k)); } catch (e) {}
-    applyWho(); askCode(false);
-  });
-};
-// ---- Démarrage ----
-if (!CFG.supabaseUrl || /VOTRE/.test(CFG.supabaseUrl)) setSync("local", "Base non configurée (config.js) — enregistré sur ce téléphone");
+// ---------- Démarrage ----------
+applyWho();
+if (!API_URL || /VOTRE/.test(API_URL + API_KEY)) setSync("local", "Base non configurée : renseigne config.js");
 else if (!CODE) askCode(false);
-else { applyWho(); pull(); }
+else pull();
 setInterval(pull, 20000);
 document.addEventListener("visibilitychange", () => { if (!document.hidden) pull(); });
 </script>

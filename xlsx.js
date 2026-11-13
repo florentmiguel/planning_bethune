@@ -1,82 +1,39 @@
-// ===== Cœur : calculs + génération du fichier Excel d'origine complété =====
+// ===== Planning : structure de la période, calculs, génération du fichier Excel =====
 const pad2 = n => String(n).padStart(2, "0");
+const MOIS = ["janvier", "février", "mars", "avril", "mai", "juin", "juillet", "août", "septembre", "octobre", "novembre", "décembre"];
+const JOURS = ["dimanche", "lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi"];
 function toMin(t) { if (!t) return null; const m = /^(\d{1,2}):(\d{2})$/.exec(t); return m ? (+m[1]) * 60 + (+m[2]) : null; }
 function dayHours(s, e) { const a = toMin(s), b = toMin(e); if (a == null || b == null) return null; return (((b - a) % 1440) + 1440) % 1440 / 60; }
 function fmtH(h) { if (h == null || h === "") return "—"; const t = Math.round(h * 60); return pad2(Math.floor(t / 60)) + ":" + pad2(t % 60); }
-function fmtDec(h) { return (h == null || h === "") ? "" : h.toFixed(2).replace(".", ","); }
-// Prénoms : ceux de l'Excel, remplaçables par config.js (prenoms: [...]) — l'en-tête de l'Excel suit
-META.people.forEach(p => { if (p.orig == null) p.orig = p.name; });
-{ const pr = (typeof window !== "undefined" && window.POINTEUSE_CONFIG && window.POINTEUSE_CONFIG.prenoms) || [];
-  META.people.forEach((p, i) => { if (pr[i] && String(pr[i]).trim()) p.name = String(pr[i]).trim(); }); }
-// Clé stable par colonne Excel (B, F, J) : changer un prénom ne perd aucun pointage
-const recKey = (iso, pi) => iso + "_" + META.people[pi].start;
-const personOfKey = k => META.people.findIndex(p => k.endsWith("_" + p.start));
-
-// Évalue les formules du tableau (mêmes formules que dans Excel) → {"D6": 7.5, ...}
-function computeValues(recs) {
-  const v = {};
-  for (const row of META.rows) {
-    if (row.kind !== "day") continue;
-    META.people.forEach((p, pi) => {
-      const r = recs[recKey(row.iso, pi)] || {};
-      const h = dayHours(r.start, r.end);
-      v[p.total + row.r] = h == null ? "" : h;
-    });
-  }
-  const refVal = ref => { const x = v[ref]; return typeof x === "number" ? x : 0; };
-  for (const row of META.rows) {
-    if (row.kind !== "total") continue;
-    META.people.forEach((p, pi) => {
-      // formule de la colonne D, transposée à la colonne de la personne
-      const f = row.f.replace(/\bD(\d+)/g, (_, n) => p.total + n);
-      let m;
-      if ((m = /^=SUM\((.*)\)$/.exec(f))) v[p.total + row.r] = m[1].split(",").reduce((s, ref) => s + refVal(ref.trim()), 0);
-      else v[p.total + row.r] = f.slice(1).split("+").reduce((s, ref) => s + refVal(ref.trim()), 0);
-    });
-  }
-  return v;
+const isoOf = d => d.getFullYear() + "-" + pad2(d.getMonth() + 1) + "-" + pad2(d.getDate());
+const dateOf = iso => { const [y, m, d] = iso.split("-").map(Number); return new Date(y, m - 1, d); };
+const recKey = (iso, uid) => iso + "_" + uid;
+function isoWeek(d) {
+  const t = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+  const day = t.getUTCDay() || 7; t.setUTCDate(t.getUTCDate() + 4 - day);
+  const y0 = new Date(Date.UTC(t.getUTCFullYear(), 0, 1));
+  return Math.ceil(((t - y0) / 86400000 + 1) / 7);
 }
+const dayLabel = d => JOURS[d.getDay()] + " " + d.getDate() + " " + MOIS[d.getMonth()] + " " + d.getFullYear();
+const longDate = iso => { const d = dateOf(iso); return d.getDate() + " " + MOIS[d.getMonth()] + " " + d.getFullYear(); };
 
+// Lignes du planning : jours, total de semaine après chaque dimanche, total de mois après le dernier jour du mois
+function buildRows(debut, fin) {
+  const rows = [], end = dateOf(fin); let week = [], month = [];
+  for (let d = dateOf(debut); d <= end; d = new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1)) {
+    const iso = isoOf(d), next = new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1), last = next > end;
+    rows.push({ kind: "day", iso, label: dayLabel(d) }); week.push(iso); month.push(iso);
+    if (d.getDay() === 0 || last) { rows.push({ kind: "week", label: "TOTAL SEMAINE " + isoWeek(d), days: week }); week = []; }
+    if (next.getMonth() !== d.getMonth() || last) { rows.push({ kind: "month", label: "TOTAL " + MOIS[d.getMonth()].toUpperCase() + " " + d.getFullYear(), days: month }); month = []; }
+  }
+  rows.push({ kind: "total", label: "TOTAL GÉNÉRAL" });
+  return rows;
+}
+// Total en heures d'une personne sur une liste de jours
+function sumHours(recs, uid, days) { let s = 0; for (const iso of days) { const r = recs[recKey(iso, uid)]; const h = r && dayHours(r.start, r.end); if (h != null) s += h; } return s; }
+
+// --- XML / ZIP ---
 const xmlEsc = s => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
-
-function setCell(xml, ref, build) {
-  const re = new RegExp('<c r="' + ref + '"([^>]*?)(?:/>|>([\\s\\S]*?)</c>)');
-  const m = re.exec(xml);
-  if (!m) throw new Error("Cellule introuvable : " + ref);
-  const attrs = m[1].replace(/\s*\bt="[^"]*"/, "");
-  return xml.slice(0, m.index) + build(attrs, m[2] || "") + xml.slice(m.index + m[0].length);
-}
-
-function buildSheet(recs, addStr) {
-  let xml = META.parts["xl/worksheets/sheet1.xml"];
-  META.people.forEach(p => {
-    if (p.name !== p.orig) xml = setCell(xml, p.start + "4", a => '<c r="' + p.start + '4"' + a + ' t="s"><v>' + addStr(p.name) + "</v></c>");
-  });
-  for (const row of META.rows) {
-    if (row.kind !== "day") continue;
-    META.people.forEach((p, pi) => {
-      const r = recs[recKey(row.iso, pi)] || {};
-      for (const [col, val] of [[p.start, r.start], [p.end, r.end]]) {
-        const mn = toMin(val);
-        xml = setCell(xml, col + row.r, a => mn == null ? '<c r="' + col + row.r + '"' + a + "/>" : '<c r="' + col + row.r + '"' + a + "><v>" + (mn / 1440) + "</v></c>");
-      }
-      const sg = (r.sign || "").trim();
-      xml = setCell(xml, p.sign + row.r, a => sg ? '<c r="' + p.sign + row.r + '"' + a + ' t="s"><v>' + addStr(sg) + "</v></c>" : '<c r="' + p.sign + row.r + '"' + a + "/>");
-    });
-  }
-  // valeurs en cache des formules (lisibles même dans un aperçu qui ne recalcule pas)
-  const vals = computeValues(recs);
-  for (const ref in vals) {
-    xml = setCell(xml, ref, (a, inner) => {
-      const fm = /<f\b[^>]*?(?:\/>|>[\s\S]*?<\/f>)/.exec(inner); if (!fm) throw new Error("pas de formule " + ref + " " + inner); const f = fm[0];
-      const x = vals[ref];
-      return x === "" ? '<c r="' + ref + '"' + a + ' t="str">' + f + "<v></v></c>" : '<c r="' + ref + '"' + a + ">" + f + "<v>" + (x / 24) + "</v></c>"; // valeur en jours Excel (format [h]:mm)
-    });
-  }
-  return xml;
-}
-
-// --- ZIP (méthode « stored », sans dépendance) ---
 const CRC_T = (() => { const t = new Uint32Array(256); for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; t[n] = c >>> 0; } return t; })();
 function crc32(b) { let c = 0xFFFFFFFF; for (let i = 0; i < b.length; i++) c = CRC_T[(c ^ b[i]) & 255] ^ (c >>> 8); return (c ^ 0xFFFFFFFF) >>> 0; }
 function makeZip(files) {
@@ -103,60 +60,86 @@ function makeZip(files) {
   for (const a of all) { out.set(a, p); p += a.length; }
   return out;
 }
+const colName = n => { let s = ""; n++; while (n > 0) { const m = (n - 1) % 26; s = String.fromCharCode(65 + m) + s; n = Math.floor((n - 1) / 26); } return s; }; // 0 -> A
 
-function buildXlsx(recs) {
-  const parts = Object.assign({}, META.parts);
-  // signatures ajoutées à la table des chaînes partagées (format le plus compatible : Excel, Numbers, aperçus)
-  let sst = parts["xl/sharedStrings.xml"];
-  const uniq = +(/uniqueCount="(\d+)"/.exec(sst) || [0, (sst.match(/<si>/g) || []).length])[1];
-  const added = [], idx = {};
-  const addStr = t => { if (!(t in idx)) { idx[t] = uniq + added.length; added.push(t); } return idx[t]; };
-  parts["xl/worksheets/sheet1.xml"] = buildSheet(recs, addStr);
-  let used = META.people.filter(p => p.name !== p.orig).length; for (const row of META.rows) if (row.kind === "day") META.people.forEach((p, pi) => { if ((recs[recKey(row.iso, pi)] || {}).sign) used++; });
-  sst = sst.replace(/<\/sst>\s*$/, added.map(t => '<si><t xml:space="preserve">' + xmlEsc(t) + "</t></si>").join("") + "</sst>")
-    .replace(/uniqueCount="\d+"/, 'uniqueCount="' + (uniq + added.length) + '"')
-    .replace(/(<sst[^>]*?\s)count="(\d+)"/, (m, a, n) => a + 'count="' + (+n + used) + '"');
-  parts["xl/sharedStrings.xml"] = sst;
-  parts["xl/workbook.xml"] = parts["xl/workbook.xml"].replace(/<calcPr([^/]*)\/>/, (m, a) => /fullCalcOnLoad/.test(a) ? m : "<calcPr" + a + ' fullCalcOnLoad="1"/>');
-  return makeZip(META.order.map(n => [n, parts[n]]));
-}
+// Styles (mêmes couleurs que le planning d'origine)
+const STYLES = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">' +
+  '<numFmts count="2"><numFmt numFmtId="164" formatCode="hh:mm"/><numFmt numFmtId="165" formatCode="[hh]:mm"/></numFmts>' +
+  '<fonts count="5"><font><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="15"/><color rgb="FFFFFFFF"/><name val="Calibri"/></font><font><i/><sz val="10"/><color rgb="FF595959"/><name val="Calibri"/></font><font><b/><sz val="11"/><color rgb="FFFFFFFF"/><name val="Calibri"/></font><font><b/><sz val="11"/><name val="Calibri"/></font></fonts>' +
+  '<fills count="9"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill>' +
+  ["17324D", "334E68", "DCEBFF", "E3F4D9", "FFF0CE", "00B0F0", "FFC000"].map(c => '<fill><patternFill patternType="solid"><fgColor rgb="FF' + c + '"/><bgColor indexed="64"/></patternFill></fill>').join("") + "</fills>" +
+  '<borders count="2"><border><left/><right/><top/><bottom/><diagonal/></border><border><left style="thin"><color rgb="FFBFBFBF"/></left><right style="thin"><color rgb="FFBFBFBF"/></right><top style="thin"><color rgb="FFBFBFBF"/></top><bottom style="thin"><color rgb="FFBFBFBF"/></bottom><diagonal/></border></borders>' +
+  '<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="22">' +
+  [ // [numFmt, font, fill, border, align]
+    [0, 0, 0, 0, ""], [0, 1, 2, 0, "left"], [0, 2, 0, 0, "left"], [0, 3, 3, 1, "center"], [0, 3, 3, 1, "center"], [0, 0, 6, 1, ""],
+    [164, 0, 4, 1, "center"], [165, 0, 4, 1, "center"], [0, 0, 4, 1, ""], [164, 0, 5, 1, "center"], [165, 0, 5, 1, "center"], [0, 0, 5, 1, ""],
+    [0, 4, 7, 1, ""], [165, 4, 7, 1, "center"], [0, 4, 7, 1, ""], [0, 4, 8, 1, ""], [165, 4, 8, 1, "center"], [0, 4, 8, 1, ""],
+    [0, 3, 2, 1, ""], [165, 3, 2, 1, "center"], [0, 3, 2, 1, ""], [0, 3, 3, 1, ""]
+  ].map(([n, f, l, b, a]) => '<xf numFmtId="' + n + '" fontId="' + f + '" fillId="' + l + '" borderId="' + b + '" xfId="0"' + (n ? ' applyNumberFormat="1"' : "") + ' applyFont="1" applyFill="1" applyBorder="1"' + (a ? ' applyAlignment="1"><alignment horizontal="' + a + '" vertical="center"/></xf>' : "/>")).join("") +
+  '</cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>';
+const ST = { title: 1, note: 2, name: 3, hdr: 4, date: 5, time: [6, 9], dur: [7, 10], sign: [8, 11], weekL: 12, weekT: 13, weekF: 14, monthL: 15, monthT: 16, monthF: 17, totL: 18, totT: 19, totF: 20, corner: 21 };
 
-// ===== Export du détail quotidien d'une personne (classeur simple, une feuille) =====
-function buildDetailXlsx(recs, pi) {
-  const p = META.people[pi];
-  const esc = s => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-  const S = (ref, txt, st) => '<c r="' + ref + '" t="inlineStr"' + (st ? ' s="' + st + '"' : "") + "><is><t>" + esc(txt) + "</t></is></c>";
+// Classeur complet : une ligne par jour, un bloc Début / Fin / Durée / Signature par personne
+function buildPlanningXlsx(recs, periode, persons) {
+  const rows = buildRows(periode.debut, periode.fin), nc = 1 + 4 * persons.length, last = colName(nc - 1);
+  const out = [], merges = ["A1:" + last + "1", "A2:" + last + "2"];
+  const S = (ref, txt, st) => '<c r="' + ref + '" s="' + st + '" t="inlineStr"><is><t xml:space="preserve">' + xmlEsc(txt) + "</t></is></c>";
+  const E = (ref, st) => '<c r="' + ref + '" s="' + st + '"/>';
   const N = (ref, v, st) => '<c r="' + ref + '" s="' + st + '"><v>' + v + "</v></c>";
-  const rows = []; let n = 0;
-  const row = cells => { n++; rows.push('<row r="' + n + '">' + cells.map(f => f(n)).join("") + "</row>"); };
-  row([r => S("A" + r, "Heures de " + p.name + " — " + (META.title || "Planning"), 3)]);
-  row([]);
-  row([r => S("A" + r, "Date", 3), r => S("B" + r, "Arrivée", 3), r => S("C" + r, "Départ", 3), r => S("D" + r, "Durée", 3), r => S("E" + r, "Signature", 3)]);
-  let week = 0, total = 0;
-  for (const rw of META.rows) {
-    if (rw.kind === "day") {
-      const x = recs[recKey(rw.iso, pi)] || {}, h = dayHours(x.start, x.end), a = toMin(x.start), b = toMin(x.end);
-      if (h != null) { week += h; total += h; }
-      row([r => S("A" + r, rw.label),
-           r => a == null ? "" : N("B" + r, a / 1440, 1),
-           r => b == null ? "" : N("C" + r, b / 1440, 1),
-           r => h == null ? "" : N("D" + r, h / 24, 2),
-           r => x.sign ? S("E" + r, x.sign) : ""]);
-    } else if (/SEMAINE/.test(rw.label)) {
-      row([r => S("A" + r, rw.label.replace("TOTAL ", "Total "), 3), r => N("D" + r, week / 24, 4)]);
-      week = 0;
+  const F = (ref, f, v, st) => v === "" || v == null ? '<c r="' + ref + '" s="' + st + '" t="str"><f>' + xmlEsc(f) + "</f><v></v></c>" : '<c r="' + ref + '" s="' + st + '"><f>' + xmlEsc(f) + "</f><v>" + v + "</v></c>";
+  const R = (r, cells, ht) => out.push('<row r="' + r + '"' + (ht ? ' ht="' + ht + '" customHeight="1"' : "") + ">" + cells.join("") + "</row>");
+  R(1, [S("A1", "PLANNING " + periode.libelle.toUpperCase() + " — DU " + longDate(periode.debut).toUpperCase() + " AU " + longDate(periode.fin).toUpperCase(), ST.title)], 30);
+  R(2, [S("A2", "Début et fin au format 08:00. Durées et totaux en heures:minutes (ex. 07:30).", ST.note)]);
+  const r3 = [E("A3", ST.corner)], r4 = [S("A4", "Date", ST.hdr)];
+  persons.forEach((p, k) => {
+    const c0 = 1 + 4 * k; r3.push(S(colName(c0) + "3", p.nom, ST.name)); for (let j = 1; j < 4; j++) r3.push(E(colName(c0 + j) + "3", ST.name));
+    merges.push(colName(c0) + "3:" + colName(c0 + 3) + "3");
+    ["Début", "Fin", "Durée", "Signature"].forEach((h, j) => r4.push(S(colName(c0 + j) + "4", h, ST.hdr)));
+  });
+  R(3, r3, 22); R(4, r4);
+  // numéro de ligne Excel de chaque jour, pour les formules de total
+  let r = 5; const rowOf = {}; for (const x of rows) { if (x.kind === "day") rowOf[x.iso] = r; r++; }
+  const segs = days => { const ns = days.map(d => rowOf[d]).sort((a, b) => a - b), out = []; let s = ns[0], p = ns[0]; for (const n of ns.slice(1)) { if (n === p + 1) { p = n; continue; } out.push([s, p]); s = p = n; } if (ns.length) out.push([s, p]); return out; };
+  const monthRows = []; r = 5;
+  for (const x of rows) {
+    const cells = [];
+    if (x.kind === "day") {
+      cells.push(S("A" + r, x.label, ST.date));
+      persons.forEach((p, k) => {
+        const c0 = 1 + 4 * k, alt = k % 2, rec = recs[recKey(x.iso, p.id)] || {}, a = toMin(rec.start), b = toMin(rec.end), h = dayHours(rec.start, rec.end);
+        const cs = colName(c0) + r, ce = colName(c0 + 1) + r;
+        cells.push(a == null ? E(cs, ST.time[alt]) : N(cs, a / 1440, ST.time[alt]));
+        cells.push(b == null ? E(ce, ST.time[alt]) : N(ce, b / 1440, ST.time[alt]));
+        cells.push(F(colName(c0 + 2) + r, 'IF(OR(' + cs + '="",' + ce + '=""),"",MOD(' + ce + "-" + cs + ",1))", h == null ? "" : h / 24, ST.dur[alt]));
+        cells.push(rec.sign ? S(colName(c0 + 3) + r, rec.sign, ST.sign[alt]) : E(colName(c0 + 3) + r, ST.sign[alt]));
+      });
+    } else {
+      const [L, T, Fi] = x.kind === "week" ? [ST.weekL, ST.weekT, ST.weekF] : x.kind === "month" ? [ST.monthL, ST.monthT, ST.monthF] : [ST.totL, ST.totT, ST.totF];
+      cells.push(S("A" + r, x.label, L));
+      if (x.kind === "month") monthRows.push(r);
+      persons.forEach((p, k) => {
+        const c0 = 1 + 4 * k, ct = colName(c0 + 2);
+        let f, v;
+        if (x.kind === "total") { f = "SUM(" + monthRows.map(m => ct + m).join(",") + ")"; v = sumHours(recs, p.id, rows.filter(y => y.kind === "day").map(y => y.iso)); }
+        else { f = "SUM(" + segs(x.days).map(([s, e]) => s === e ? ct + s : ct + s + ":" + ct + e).join(",") + ")"; v = sumHours(recs, p.id, x.days); }
+        cells.push(E(colName(c0) + r, Fi), E(colName(c0 + 1) + r, Fi), F(ct + r, f, v / 24, T), E(colName(c0 + 3) + r, Fi));
+      });
     }
+    R(r, cells, x.kind === "day" ? 0 : 20); r++;
   }
-  row([]);
-  row([r => S("A" + r, "Total général", 3), r => N("D" + r, total / 24, 4)]);
-  const ns = 'xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"';
-  const files = [
+  const cols = '<cols><col min="1" max="1" width="27" customWidth="1"/>' + persons.map((p, k) => { const c = 2 + 4 * k; return '<col min="' + c + '" max="' + (c + 2) + '" width="9" customWidth="1"/><col min="' + (c + 3) + '" max="' + (c + 3) + '" width="34" customWidth="1"/>'; }).join("") + "</cols>";
+  const ns = 'xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"', nsr = 'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"';
+  const sheet = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet ' + ns + " " + nsr + '><sheetPr><pageSetUpPr fitToPage="1"/></sheetPr>' +
+    '<sheetViews><sheetView workbookViewId="0"><pane xSplit="1" ySplit="4" topLeftCell="B5" activePane="bottomRight" state="frozen"/></sheetView></sheetViews>' +
+    '<sheetFormatPr defaultRowHeight="15"/>' + cols + "<sheetData>" + out.join("") + "</sheetData>" +
+    '<mergeCells count="' + merges.length + '">' + merges.map(m => '<mergeCell ref="' + m + '"/>').join("") + "</mergeCells>" +
+    '<pageMargins left="0.4" right="0.4" top="0.5" bottom="0.5" header="0.3" footer="0.3"/><pageSetup paperSize="9" orientation="landscape" fitToWidth="1" fitToHeight="0"/></worksheet>';
+  return makeZip([
     ["[Content_Types].xml", '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/></Types>'],
     ["_rels/.rels", '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>'],
-    ["xl/workbook.xml", '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook ' + ns + ' xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Mes heures" sheetId="1" r:id="rId1"/></sheets></workbook>'],
+    ["xl/workbook.xml", '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook ' + ns + " " + nsr + '><sheets><sheet name="Planning" sheetId="1" r:id="rId1"/></sheets><definedNames><definedName name="_xlnm.Print_Titles" localSheetId="0">Planning!$1:$4</definedName></definedNames><calcPr calcId="191029" fullCalcOnLoad="1"/></workbook>'],
     ["xl/_rels/workbook.xml.rels", '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>'],
-    ["xl/styles.xml", '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet ' + ns + '><numFmts count="2"><numFmt numFmtId="164" formatCode="hh:mm"/><numFmt numFmtId="165" formatCode="[hh]:mm"/></numFmts><fonts count="2"><font><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="11"/><name val="Calibri"/></font></fonts><fills count="2"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill></fills><borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="5"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="164" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/><xf numFmtId="165" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/><xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1"/><xf numFmtId="165" fontId="1" fillId="0" borderId="0" xfId="0" applyNumberFormat="1" applyFont="1"/></cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>'],
-    ["xl/worksheets/sheet1.xml", '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet ' + ns + '><cols><col min="1" max="1" width="30" customWidth="1"/><col min="2" max="4" width="11" customWidth="1"/><col min="5" max="5" width="26" customWidth="1"/></cols><sheetData>' + rows.join("") + "</sheetData></worksheet>"]
-  ];
-  return makeZip(files);
+    ["xl/styles.xml", STYLES],
+    ["xl/worksheets/sheet1.xml", sheet]
+  ]);
 }
