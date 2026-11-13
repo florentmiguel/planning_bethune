@@ -105,6 +105,7 @@ body.test #testbar{display:block}
     <div class="card">
       <div class="clock" id="clock">--:--</div>
       <div class="date" id="today"></div>
+      <div id="prevu" style="text-align:center;font-size:15px;margin-top:6px;color:var(--acc);font-weight:600"></div>
       <div class="status">
         <div><b id="sIn">—</b><span>Arrivée</span></div>
         <div><b id="sOut">—</b><span>Départ</span></div>
@@ -117,6 +118,11 @@ body.test #testbar{display:block}
   </section>
 
   <section id="v-planning" class="hide"><div class="wk" id="weeks"></div></section>
+
+  <section id="v-horaires" class="hide">
+    <div class="note" style="background:var(--acc2);color:var(--acc);margin:4px 0 0">Horaires <b>prévus</b>. Le salarié les voit dans son onglet Pointer. Enregistrement automatique à chaque saisie.</div>
+    <div class="wk" id="hweeks"></div>
+  </section>
 
   <section id="v-export" class="hide">
     <div class="card" style="overflow-x:auto"><table id="sum"></table></div>
@@ -136,7 +142,8 @@ body.test #testbar{display:block}
 
 <nav>
   <button data-v="pointer" class="on"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>Pointer</button>
-  <button data-v="planning"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>Planning</button>
+  <button data-v="planning"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>Pointages</button>
+  <button data-v="horaires" class="hide"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4M12 13v3l2 1.5"/></svg>Horaires</button>
   <button data-v="export"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0l-4-4m4 4l4-4M4 17v3h16v-3"/></svg>Totaux</button>
   <button data-v="admin" class="hide"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.6-3.6 3.3-5.5 6.5-5.5s5.9 1.9 6.5 5.5"/><path d="M17 8h5M19.5 5.5v5"/></svg>Admin</button>
 </nav>
@@ -193,6 +200,11 @@ let REAL = {}; try { REAL = JSON.parse(ls.get("ptg-recs") || "{}"); } catch (e) 
 // modifications pas encore envoyées : { "evt|iso_uid": { evt, iso, uid, start, end, sign } }
 let dirty = {}; try { dirty = JSON.parse(ls.get("ptg-dirty") || "{}"); } catch (e) {}
 let TEST = false, TEST_DAY = "", TESTRECS = {}, recs = REAL;
+// horaires prévus de l'événement affiché : { "iso_uid": { d1, f1, d2, f2 } }
+let HOR = {}; try { HOR = JSON.parse(ls.get("ptg-hor") || "{}"); } catch (e) {}
+const hor = (iso, p) => (p && HOR[recKey(iso, p.id)]) || {};
+const horTxt = h => [h.d1 || h.f1 ? (h.d1 || "?") + "–" + (h.f1 || "?") : "", h.d2 || h.f2 ? (h.d2 || "?") + "–" + (h.f2 || "?") : ""].filter(Boolean).join(" · ");
+const horHours = h => (dayHours(h.d1, h.f1) || 0) + (dayHours(h.d2, h.f2) || 0);
 const saveLocal = () => { ls.set("ptg-recs", JSON.stringify(REAL)); ls.set("ptg-dirty", JSON.stringify(dirty)); ls.set("ptg-data", JSON.stringify(DATA)); ls.set("ptg-evt", EVT); };
 const PER = () => DATA && DATA.evenement && DATA.evenement.id === EVT ? { id: EVT, libelle: DATA.evenement.nom, debut: DATA.evenement.debut, fin: DATA.evenement.fin } : null;
 const EVTS = () => (WHO && WHO.evenements) || [];
@@ -204,6 +216,9 @@ function pickEvt() {
 }
 const role = () => WHO ? WHO.role : null;
 const cur = () => P[me];
+// onglet Pointer : personnel pour salariés et responsables ; l'admin peut pointer pour n'importe qui
+const selfP = () => WHO ? P.find(p => p.id === WHO.id) : null;
+const ptrP = () => role() === "admin" ? cur() : selfP();
 const rec = (iso, p = cur()) => (p && recs[recKey(iso, p.id)]) || {};
 const rowByIso = iso => DAYS.find(d => d.iso === iso);
 function NOW() { const n = new Date(); if (!TEST) return n; const d = dateOf(TEST_DAY); d.setHours(n.getHours(), n.getMinutes(), n.getSeconds()); return d; }
@@ -229,8 +244,9 @@ function applyWho() {
   if (sal && view === "planning") go("pointer");
   $("admin").classList.toggle("hide", role() !== "admin");
   document.querySelector('nav button[data-v="admin"]').classList.toggle("hide", role() !== "admin");
-  if (role() !== "admin" && view === "admin") go("pointer");
-  planKey = ""; renderAll();
+  document.querySelector('nav button[data-v="horaires"]').classList.toggle("hide", role() !== "admin");
+  if (role() !== "admin" && (view === "admin" || view === "horaires")) go("pointer");
+  planKey = ""; horKey = ""; renderAll();
 }
 
 // ---------- Synchronisation ----------
@@ -250,6 +266,8 @@ async function pull() {
     for (const k in dirty) { const x = dirty[k]; if (x.evt === EVT) fresh[recKey(x.iso, x.uid)] = x; }
     const changed = JSON.stringify({ e: d.evenement, p: d.personnes }) !== JSON.stringify(DATA && { e: DATA.evenement, p: DATA.personnes });
     DATA = { evenement: d.evenement, personnes: d.personnes };
+    HOR = {}; for (const x of (d.horaires || [])) HOR[recKey(x.iso, x.uid)] = { d1: x.d1, f1: x.f1, d2: x.d2, f2: x.f2 };
+    ls.set("ptg-hor", JSON.stringify(HOR));
     REAL = fresh; if (!TEST) recs = REAL; saveLocal();
     if (changed) applyWho(); else renderAll();
     if (!Object.keys(dirty).length) setSync("ok", "Synchronisé");
@@ -288,8 +306,7 @@ async function pointAction(action, iso) {
   try { await rpc("ptg_pointer", { p_evt: EVT, p_action: action, p_iso: iso || null }); setSync("ok", "Enregistré"); pull(); }
   catch (e) { if (e.badCode) return askCode(true); setSync("local", e.net ? "Pas de réseau : pointage non enregistré, réessaie" : "Refusé : " + explain(e)); renderAll(); }
 }
-function act(action, iso, newRec) {
-  const p = cur();
+function act(action, iso, newRec, p = cur()) {
   if (!TEST && WHO && p.id === WHO.id) return pointAction(action, iso);
   put(iso, p, newRec);
 }
@@ -314,7 +331,7 @@ $("lok").onclick = async () => {
 $("logout").onclick = () => {
   const n = Object.keys(dirty).length;
   confirmBox((n ? "<b>" + n + " modification(s) pas encore envoyée(s)</b> seront perdues.<br>" : "") + "Se déconnecter de ce téléphone ?", () => {
-    CODE = ""; WHO = null; REAL = {}; dirty = {}; DATA = null; EVT = 0; recs = REAL; ["ptg-code", "ptg-who", "ptg-recs", "ptg-dirty", "ptg-me-uid", "ptg-data", "ptg-evt"].forEach(ls.del);
+    CODE = ""; WHO = null; REAL = {}; dirty = {}; DATA = null; EVT = 0; HOR = {}; recs = REAL; ["ptg-code", "ptg-who", "ptg-recs", "ptg-dirty", "ptg-me-uid", "ptg-data", "ptg-evt", "ptg-hor"].forEach(ls.del);
     applyWho(); askCode(false);
   });
 };
@@ -334,19 +351,24 @@ function infoBox(html, isErr) {
 }
 
 // ---------- Pointer ----------
-function openShift(now) {
+function openShift(now, p = ptrP()) {
   const t = isoOf(now), y = new Date(now); y.setDate(y.getDate() - 1); const yi = isoOf(y);
-  for (const iso of [t, yi]) { const r = rec(iso); if (r.start && !r.end && rowByIso(iso)) return iso; }
+  for (const iso of [t, yi]) { const r = rec(iso, p); if (r.start && !r.end && rowByIso(iso)) return iso; }
   return null;
 }
 function weekOf(iso) { let start = 0; for (let i = 0; i < ROWS.length; i++) { if (ROWS[i].kind === "week") { if (ROWS[i].days.includes(iso)) return ROWS[i]; } } return null; }
 function renderPointer() {
-  const now = NOW(), p = cur();
+  const now = NOW(), p = ptrP();
   $("clock").textContent = hm(now);
   $("today").textContent = now.toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" });
   const b = $("btn"); let note = "";
-  if (!p) { b.disabled = true; b.className = "big"; b.textContent = WHO ? "Aucun planning" : "Connexion…"; $("pnote").innerHTML = ""; $("mini").innerHTML = ""; ["sIn", "sOut", "sTot"].forEach(i => $(i).textContent = "—"); return; }
-  const open = openShift(now), t = isoOf(now), iso = open || t, r = rec(iso);
+  if (!p) { b.disabled = true; b.className = "big"; b.textContent = !WHO ? "Connexion…" : PER() ? "Pas dans l'équipe" : "Aucun événement";
+    if (WHO && PER()) $("pnote").innerHTML = '<div class="note">Tu ne fais pas partie de l\'équipe de « ' + escH(PER().libelle) + ' ». ' + (role() === "salarie" ? "" : "Les heures des autres se consultent et se corrigent dans l'onglet Planning.") + "</div>"; if (!(WHO && PER())) $("pnote").innerHTML = ""; $("mini").innerHTML = ""; $("prevu").textContent = ""; ["sIn", "sOut", "sTot"].forEach(i => $(i).textContent = "—"); return; }
+  const open = openShift(now, p), t = isoOf(now), iso = open || t, r = rec(iso, p);
+  // horaire prévu : aujourd'hui, sinon le prochain jour prévu
+  const ht = horTxt(hor(t, p));
+  if (ht) $("prevu").textContent = "Prévu aujourd'hui : " + ht;
+  else { const nx = DAYS.find(d => d.iso > t && horTxt(hor(d.iso, p))); $("prevu").textContent = nx ? "Prochain horaire : " + short(nx.label) + ", " + horTxt(hor(nx.iso, p)) : ""; }
   $("sIn").textContent = r.start || "—"; $("sOut").textContent = r.end || "—";
   const live = r.start && !r.end ? dayHours(r.start, hm(now)) : dayHours(r.start, r.end);
   $("sTot").textContent = live == null ? "—" : fmtH(live);
@@ -356,20 +378,22 @@ function renderPointer() {
   else if (r.start && r.end && !r.sign) { b.disabled = false; b.className = "big"; b.textContent = "Signer la journée"; }
   else if (r.start && r.end) { b.disabled = true; b.className = "big"; b.textContent = "Journée signée ✓"; note = escH(r.sign); }
   else { b.disabled = false; b.className = "big"; b.textContent = "Pointer l'arrivée"; }
-  if (!TEST && !canPoint(p)) { b.disabled = true; b.className = "big"; b.textContent = "Lecture seule"; }
   $("pnote").innerHTML = note ? '<div class="note"' + (note === escH(r.sign) ? ' style="background:var(--acc2);color:var(--acc)"' : "") + ">" + note + "</div>" : "";
   const gt = $("gotest"); if (gt) gt.onclick = () => setTest(true);
   const W = weekOf(rowByIso(t) ? t : (DAYS[0] || {}).iso);
-  let h = "<tr><th>" + (W ? nice(W.label) : "") + "</th><th>Arr.</th><th>Dép.</th><th>Durée</th><th>Sig.</th></tr>";
-  if (W) { for (const d of W.days) { const x = rec(d), dh = dayHours(x.start, x.end); h += "<tr><td style='text-transform:capitalize'>" + short(rowByIso(d).label) + "</td><td>" + (x.start || "") + "</td><td>" + (x.end || "") + "</td><td>" + (dh == null ? "" : fmtH(dh)) + "</td><td style='color:var(--acc)'>" + (x.sign ? "✓" : "") + "</td></tr>"; }
-    h += "<tr class='strong'><td>Total</td><td></td><td></td><td>" + fmtH(sumHours(recs, p.id, W.days)) + "</td><td></td></tr>"; }
+  const anyHor = W && W.days.some(d => horTxt(hor(d, p)));
+  let h = "<tr><th>" + (W ? nice(W.label) : "") + "</th>" + (anyHor ? "<th>Prévu</th>" : "") + "<th>Arr.</th><th>Dép.</th><th>Durée</th><th>Sig.</th></tr>";
+  if (W) { for (const d of W.days) { const x = rec(d, p), dh = dayHours(x.start, x.end); h += "<tr><td style='text-transform:capitalize'>" + short(rowByIso(d).label) + "</td>" + (anyHor ? "<td style='font-size:12px;color:var(--acc);white-space:normal'>" + horTxt(hor(d, p)).replace(" · ", "<br>") + "</td>" : "") + "<td>" + (x.start || "") + "</td><td>" + (x.end || "") + "</td><td>" + (dh == null ? "" : fmtH(dh)) + "</td><td style='color:var(--acc)'>" + (x.sign ? "✓" : "") + "</td></tr>"; }
+    h += "<tr class='strong'><td>Total</td>" + (anyHor ? "<td style='font-size:12px'>" + fmtH(W.days.reduce((s, d) => s + horHours(hor(d, p)), 0)) + "</td>" : "") + "<td></td><td></td><td>" + fmtH(sumHours(recs, p.id, W.days)) + "</td><td></td></tr>"; }
   $("mini").innerHTML = h;
 }
 $("btn").onclick = () => {
-  const now = NOW(), open = openShift(now), t = isoOf(now), p = cur();
-  if (open) { const r = rec(open); confirmBox("Départ de <b>" + escH(p.nom) + "</b> à <b>" + hm(now) + "</b> ?", () => act("depart", open, Object.assign({}, r, { end: hm(now) }))); }
-  else if (rowByIso(t) && rec(t).start && rec(t).end) { const r = rec(t); if (!r.sign) confirmBox("Signer la journée de <b>" + escH(p.nom) + "</b> (" + r.start + " → " + r.end + ") ?", () => act("signer", t, Object.assign({}, r, { sign: "✓ " + p.nom + " " + ddmm(now) + " " + hm(now) }))); }
-  else if (rowByIso(t)) { const r = rec(t); confirmBox("Arrivée de <b>" + escH(p.nom) + "</b> à <b>" + hm(now) + "</b> ?", () => act("arrivee", t, Object.assign({}, r, { start: hm(now) }))); }
+  const now = NOW(), p = ptrP(); if (!p) return;
+  const qui = role() === "admin" && p.id !== WHO.id ? " de <b>" + escH(p.nom) + "</b>" : "";
+  const open = openShift(now, p), t = isoOf(now), R = iso => rec(iso, p);
+  if (open) { const r = R(open); confirmBox("Départ" + qui + " à <b>" + hm(now) + "</b> ?", () => act("depart", open, Object.assign({}, r, { end: hm(now) }), p)); }
+  else if (rowByIso(t) && R(t).start && R(t).end) { const r = R(t); if (!r.sign) confirmBox((qui ? "Signer la journée" + qui + " (" : "Signer ta journée (") + r.start + " → " + r.end + ") ?", () => act("signer", t, Object.assign({}, r, { sign: "✓ " + p.nom + " " + ddmm(now) + " " + hm(now) }), p)); }
+  else if (rowByIso(t)) { const r = R(t); confirmBox("Arrivée" + qui + " à <b>" + hm(now) + "</b> ?", () => act("arrivee", t, Object.assign({}, r, { start: hm(now) }), p)); }
 };
 
 // ---------- Planning (corrections : admin / responsable) ----------
@@ -411,6 +435,46 @@ $("weeks").addEventListener("click", e => {
     if (r.sign) confirmBox("Retirer la signature ?", () => { r.sign = ""; put(iso, p, r); });
     else { const n = NOW(); r.sign = "✓ " + p.nom + " " + ddmm(n) + " " + hm(n); put(iso, p, r); }
   }
+});
+
+// ---------- Horaires prévus (admin) ----------
+let horKey = "";
+function renderHoraires() {
+  const p = cur(), per = PER(), key = (per ? per.id + per.debut + per.fin : "") + "|" + (p ? p.id : "");
+  if (key !== horKey) {
+    horKey = key; let h = "", block = [];
+    for (const x of ROWS) {
+      if (x.kind === "day") { block.push(x); continue; }
+      if (x.kind !== "week") continue;
+      h += '<h3><span>' + nice(x.label) + '</span><span data-hw="' + x.days[0] + '"></span></h3>';
+      for (const d of block) h += '<div class="day" id="h-' + d.iso + '"><div class="lbl">' + short(d.label) + '</div><div class="tot" data-ht></div>' +
+        '<div class="times"><input type="time" data-iso="' + d.iso + '" data-f="d1" aria-label="Début 1"><span>→</span><input type="time" data-iso="' + d.iso + '" data-f="f1" aria-label="Fin 1"><button class="clr" data-hclr="' + d.iso + '" aria-label="Effacer">×</button></div>' +
+        '<div class="times"><input type="time" data-iso="' + d.iso + '" data-f="d2" aria-label="Début 2"><span>→</span><input type="time" data-iso="' + d.iso + '" data-f="f2" aria-label="Fin 2"><span style="width:26px;font-size:11px;color:var(--mut)">2e</span></div></div>';
+      block = [];
+    }
+    $("hweeks").innerHTML = p ? h : "<div class='card'>Aucune personne dans l'équipe de cet événement.</div>";
+  }
+  if (!p) return;
+  for (const d of DAYS) {
+    const el = $("h-" + d.iso); if (!el) continue; const x = hor(d.iso, p);
+    for (const i of el.querySelectorAll("input")) if (document.activeElement !== i) i.value = x[i.dataset.f] || "";
+    const t = horHours(x); el.querySelector("[data-ht]").textContent = t ? fmtH(t) : "";
+  }
+  for (const s of $("hweeks").querySelectorAll("[data-hw]")) { const W = weekOf(s.dataset.hw); s.textContent = W ? fmtH(W.days.reduce((a, d) => a + horHours(hor(d, p)), 0)) : ""; }
+}
+async function saveHor(iso, x) {
+  const p = cur(), k = recKey(iso, p.id), prev = HOR[k];
+  HOR[k] = x; renderHoraires(); setSync("loading", "Enregistrement…");
+  try { await rpc("ptg_horaire_save", { p_evt: EVT, p_uid: p.id, p_iso: iso, p_d1: x.d1 || "", p_f1: x.f1 || "", p_d2: x.d2 || "", p_f2: x.f2 || "" }); setSync("ok", "Horaire enregistré"); ls.set("ptg-hor", JSON.stringify(HOR)); }
+  catch (e) { if (prev) HOR[k] = prev; else delete HOR[k]; renderHoraires(); infoBox(escH(explain(e)), true); setSync("local", "Horaire non enregistré"); }
+}
+$("hweeks").addEventListener("change", e => {
+  const i = e.target; if (!i.dataset.iso) return;
+  const x = Object.assign({}, hor(i.dataset.iso, cur())); x[i.dataset.f] = i.value; saveHor(i.dataset.iso, x);
+});
+$("hweeks").addEventListener("click", e => {
+  const b = e.target.closest("[data-hclr]"); if (!b) return; const iso = b.dataset.hclr;
+  confirmBox("Effacer l'horaire du " + rowByIso(iso).label + " pour " + escH(cur().nom) + " ?", () => saveHor(iso, {}));
 });
 
 // ---------- Totaux, détail et export ----------
@@ -568,7 +632,7 @@ $("users").addEventListener("click", async e => {
 function setTest(on) {
   TEST = on; recs = on ? TESTRECS : REAL; document.body.classList.toggle("test", on);
   if (on) $("tday").innerHTML = DAYS.map(d => '<option value="' + d.iso + '"' + (d.iso === TEST_DAY ? " selected" : "") + ">" + short(d.label) + "</option>").join("");
-  planKey = ""; renderAll();
+  planKey = ""; horKey = ""; renderAll();
 }
 $("tday").onchange = e => { TEST_DAY = e.target.value; planKey = ""; renderAll(); };
 $("tclear").onclick = () => { TESTRECS = {}; recs = TESTRECS; renderAll(); };
@@ -578,15 +642,15 @@ $("evsel").onchange = e => { EVT = +e.target.value; DATA = null; REAL = {}; if (
 // ---------- Navigation et rendu ----------
 function renderAll() {
   $("chips").innerHTML = P.map((p, i) => '<button class="chip' + (i === me ? " on" : "") + '" data-p="' + i + '">' + escH(p.nom) + (p.actif === false ? " (ancien)" : "") + (canPoint(p) || TEST ? "" : " 👁") + "</button>").join("");
-  $("chips").style.flexWrap = "wrap"; $("chips").classList.toggle("hide", view === "admin");
+  $("chips").style.flexWrap = "wrap"; $("chips").classList.toggle("hide", view === "admin" || (view === "pointer" && role() !== "admin"));
   document.body.classList.toggle("ro", !TEST && !canEdit(cur()));
-  if (view === "pointer") renderPointer(); if (view === "planning") renderPlanning(); if (view === "export") renderExport(); if (view === "admin") loadAdmin();
+  if (view === "pointer") renderPointer(); if (view === "planning") renderPlanning(); if (view === "export") renderExport(); if (view === "admin") loadAdmin(); if (view === "horaires") renderHoraires();
 }
-$("chips").onclick = e => { const b = e.target.closest("[data-p]"); if (!b) return; me = +b.dataset.p; ls.set("ptg-me-uid", P[me].id); renderAll(); };
+$("chips").onclick = e => { const b = e.target.closest("[data-p]"); if (!b) return; me = +b.dataset.p; ls.set("ptg-me-uid", P[me].id); horKey = ""; renderAll(); };
 function go(v) {
   view = v;
   for (const x of document.querySelectorAll("nav button")) x.classList.toggle("on", x.dataset.v === v);
-  for (const s of ["pointer", "planning", "export", "admin"]) $("v-" + s).classList.toggle("hide", s !== v);
+  for (const s of ["pointer", "planning", "horaires", "export", "admin"]) $("v-" + s).classList.toggle("hide", s !== v);
   renderAll();
   if (v === "planning") { const t = $("d-" + isoOf(NOW())); if (t) t.scrollIntoView({ block: "center" }); }
 }

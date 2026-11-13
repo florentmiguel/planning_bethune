@@ -37,6 +37,15 @@ Chacun peut exporter **son détail** (ou celui d'une personne qu'il voit) en .xl
 - Les heures sont rattachées à la personne **et** à l'événement : une même personne peut travailler sur deux événements, ses heures sont séparées.
 - Si plusieurs événements sont visibles, un menu en haut de la page permet de choisir l'événement.
 
+## Onglets
+| Onglet | Qui | Rôle |
+|---|---|---|
+| Pointer | tous | pointage personnel (l'admin peut pointer pour n'importe qui) ; affiche l'horaire prévu |
+| Pointages | responsables, admin | corriger les heures réellement pointées |
+| Horaires | admin | saisir les horaires **prévus** (jusqu'à 2 créneaux par jour) |
+| Totaux | tous | totaux, détail dépliant, exports Excel |
+| Admin | admin | événements, équipes, comptes |
+
 ## Excel
 Généré par l'appli : une ligne par jour, un bloc Début / Fin / Durée / Signature par personne, totaux par semaine, par mois et général (formules Excel), en-têtes figés, impression A4 paysage sur la largeur d'une page.
 
