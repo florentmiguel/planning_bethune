@@ -405,14 +405,10 @@ function saveFile(bytes, name) {
 }
 function renderExport() {
   renderDetail();
-  // Prénoms modifiables (admin et responsables) : un champ par colonne occupée
-  const can = WHO && (WHO.role === "admin" || WHO.role === "responsable") && Array.isArray(WHO.noms);
-  $("noms").classList.toggle("hide", !can);
-  if (can && !$("noms").contains(document.activeElement)) {
-    $("noms").innerHTML = "<b>Prénoms</b>" + P.filter(p => WHO.noms.some(n => n.col === p.start)).map(p =>
-      '<div style="display:flex;gap:8px;margin-top:10px"><input data-col="' + p.start + '" value="' + p.name.replace(/"/g, "&quot;") + '" maxlength="40" style="flex:1;font:inherit;padding:8px;border:1px solid var(--line);border-radius:10px;background:var(--bg);color:var(--ink)"><button class="lnk" data-ren="' + p.start + '">Enregistrer</button></div>').join("") +
-      '<div class="msg" id="nmsg"></div>';
-  }
+  // Gestion des utilisateurs : administrateur uniquement
+  const adm = !!WHO && WHO.role === "admin";
+  $("noms").classList.toggle("hide", !adm);
+  if (adm) loadUsers();
   const vals = computeValues(recs);
   const V = visible().map(i => P[i]);
   let h = "<tr><th></th>" + V.map(p => "<th>" + p.name + "</th>").join("") + "</tr>";
@@ -422,11 +418,49 @@ function renderExport() {
   }
   $("sum").innerHTML = h + "<tr><td colspan='" + (V.length + 1) + "' style='color:var(--mut);font-size:12px;text-align:left;border:0'>Mêmes valeurs et même format que dans l'Excel.</td></tr>";
 }
+// ---- Utilisateurs (admin) ----
+let USERS = null, usersLoading = false, NMSG = "";
+const escH = t => String(t == null ? "" : t).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/"/g, "&quot;");
+// message lisible renvoyé par la base (PostgREST renvoie {"message": "..."})
+function dbMsg(e) {
+  if (e.badCode) return "Code refusé.";
+  try { const m = JSON.parse(e.message).message; if (m) return m.charAt(0).toUpperCase() + m.slice(1) + "."; } catch (x) {}
+  return explain(e);
+}
+async function loadUsers(force) {
+  if (usersLoading || (USERS && !force)) return renderUsers();
+  usersLoading = true;
+  try { USERS = await rpc("ptg_users", {}); } catch (e) { $("noms").innerHTML = "<b>Utilisateurs</b><div class='msg' style='color:var(--warn)'>" + escH(dbMsg(e)) + "</div>"; usersLoading = false; return; }
+  usersLoading = false; renderUsers();
+}
+function userBlock(u) {
+  const sel = (v, opts) => opts.map(([k, l]) => '<option value="' + k + '"' + (k === (v || "") ? " selected" : "") + ">" + l + "</option>").join("");
+  const st = "font:inherit;font-size:15px;padding:7px;border:1px solid var(--line);border-radius:10px;background:var(--bg);color:var(--ink);min-width:0";
+  return '<div class="usr" data-old="' + escH(u.code || "") + '" style="border-top:1px solid var(--line);padding:10px 0;display:grid;grid-template-columns:1fr 1fr;gap:6px">' +
+    '<input data-k="nom" placeholder="Prénom" value="' + escH(u.nom) + '" maxlength="40" style="' + st + '">' +
+    '<input data-k="code" placeholder="Code (8 car. min.)" value="' + escH(u.code) + '" style="' + st + '">' +
+    '<select data-k="role" style="' + st + '">' + sel(u.role || "salarie", [["salarie", "Salarié"], ["responsable", "Responsable"], ["admin", "Administrateur"]]) + "</select>" +
+    '<select data-k="col" style="' + st + '">' + sel(u.col, [["", "Sans colonne"], ["B", "Colonne B (1re)"], ["F", "Colonne F (2e)"], ["J", "Colonne J (3e)"]]) + "</select>" +
+    '<label style="display:flex;align-items:center;gap:6px;font-size:14px"><input type="checkbox" data-k="actif"' + (u.actif === false ? "" : " checked") + "> Actif</label>" +
+    '<button class="lnk" data-save style="text-align:right">' + (u.code ? "Enregistrer" : "Créer") + "</button></div>";
+}
+function renderUsers() {
+  if (!USERS || $("noms").contains(document.activeElement)) return;
+  $("noms").innerHTML = "<b>Utilisateurs</b>" + USERS.map(userBlock).join("") +
+    "<div style='margin-top:8px;font-weight:600;font-size:14px;color:var(--mut)'>Nouvel utilisateur</div>" + userBlock({ actif: true }) + "<div class='msg' id='nmsg'>" + escH(NMSG) + "</div>";
+}
 $("noms").addEventListener("click", async e => {
-  const col = e.target.dataset && e.target.dataset.ren; if (!col) return;
-  const nom = $("noms").querySelector('input[data-col="' + col + '"]').value.trim();
-  try { await rpc("ptg_renommer", { p_col: col, p_nom: nom }); document.activeElement.blur(); $("nmsg").textContent = "Enregistré."; pull(); }
-  catch (x) { $("nmsg").textContent = x.badCode ? "Code refusé." : (/[\w ]*(invalide|refusé|aucune personne[^"]*)/.exec(x.message) || ["Erreur"])[0]; }
+  const b = e.target.closest("[data-save]"); if (!b) return;
+  const box = b.closest(".usr"), v = k => box.querySelector('[data-k="' + k + '"]');
+  const old = box.dataset.old, code = v("code").value.trim();
+  b.disabled = true; NMSG = ""; $("nmsg").textContent = "Enregistrement…";
+  try {
+    await rpc("ptg_user_save", { p_old_code: old || null, p_new_code: code, p_nom: v("nom").value, p_role: v("role").value, p_col: v("col").value, p_actif: v("actif").checked });
+    // si l'admin a changé son propre code, on garde la session ouverte avec le nouveau
+    if (old && old === CODE) { CODE = code; try { localStorage.setItem("ptg-code", CODE); } catch (x) {} }
+    document.activeElement.blur(); NMSG = "Enregistré."; USERS = null; await loadUsers(true); pull();
+  } catch (x) { NMSG = dbMsg(x); $("nmsg").textContent = NMSG; }
+  finally { b.disabled = false; }
 });
 $("exp").onclick = () => {
   const m = $("emsg");
