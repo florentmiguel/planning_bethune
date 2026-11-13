@@ -79,6 +79,15 @@ body.test #testbar{display:block}
 .wkd table{margin:2px 0 8px}
 .tline{display:flex;justify-content:space-between;border-top:1px solid var(--line);padding:8px 0 8px 16px;font-weight:700;font-variant-numeric:tabular-nums}
 .adm label.full{grid-column:1/-1}.adm label.full input{flex:1;width:auto}
+.adm label.full input[type=checkbox]{flex:none}
+.fold{border-top:1px solid var(--line)}
+.fold>summary{display:flex;justify-content:space-between;align-items:baseline;gap:8px;cursor:pointer;list-style:none;padding:12px 0;font-weight:600}
+.fold>summary::-webkit-details-marker{display:none}
+.fold>summary span::before{content:"▸";display:inline-block;width:16px;color:var(--mut);transition:transform .15s}
+.fold[open]>summary span::before{transform:rotate(90deg)}
+.fold>summary small{color:var(--mut);font-weight:400;font-size:13px;text-align:right}
+.fold .add{color:var(--acc)}
+.fold>.it{border-top:0;padding-top:0}
 </style>
 </head>
 <body>
@@ -468,7 +477,9 @@ $("exp").onclick = () => {
 };
 
 // ---------- Administration : périodes et utilisateurs ----------
-let ADM = { users: null, evts: null, msgU: "", msgE: "", loading: false };
+let ADM = { users: null, evts: null, msgU: "", msgE: "", loading: false, open: {} };
+// un bloc dépliant par événement / par compte ; ADM.open garde ce qui est ouvert
+const fold = (key, title, body) => '<details class="fold" data-key="' + key + '"' + (ADM.open[key] ? " open" : "") + "><summary>" + title + "</summary>" + body + "</details>";
 async function loadAdmin(force) {
   if (ADM.loading) return;
   if (!force && ADM.users && ADM.evts) return renderAdmin();
@@ -490,17 +501,22 @@ function renderAdmin() {
         '<label><input type="checkbox" data-k="archive"' + (q.archive ? " checked" : "") + "> Archivé</label><button class='lnk' data-save style='text-align:right'>" + (q.id ? "Enregistrer" : "Créer") + "</button>" +
         (q.id ? "<button class='lnk' data-del style='grid-column:1/-1;text-align:left;color:var(--warn)'>Supprimer cet événement…</button>" : "") + "</div>";
     };
+    const head = q => "<span>" + escH(q.nom) + "</span><small>" + ddmm(dateOf(q.debut)) + "–" + ddmm(dateOf(q.fin)) + " · " + (q.equipe || []).length + " pers." + (q.archive ? " · archivé" : "") + "</small>";
     $("periodes").innerHTML = "<b>Événements</b><div style='font-size:13px;color:var(--mut)'>Plusieurs événements peuvent avoir lieu en même temps. Chacun ne voit que ceux de son équipe ; un événement archivé disparaît pour les non-admins.</div>" +
-      (ADM.evts || []).map(it).join("") + "<div class='sub'>Nouvel événement</div>" + it({}) + "<div class='msg'>" + escH(ADM.msgE) + "</div>";
+      (ADM.evts || []).map(q => fold("e" + q.id, head(q), it(q))).join("") + fold("e-new", "<span class='add'>＋ Nouvel événement</span>", it({}));
   }
   if (!$("users").contains(document.activeElement)) {
     const it = u => '<div class="it" data-id="' + (u.id || "") + '"><input data-k="nom" placeholder="Prénom" value="' + escH(u.nom) + '" maxlength="40"><input data-k="code" placeholder="Code (8 car. min.)" value="' + escH(u.code) + '">' +
       '<select data-k="role">' + sel(u.role || "salarie", [["salarie", "Salarié"], ["responsable", "Responsable"], ["admin", "Administrateur"]]) + "</select>" +
-      '<label><input type="checkbox" data-k="actif"' + (u.actif === false ? "" : " checked") + "> Actif</label><span></span><button class='lnk' data-save style='text-align:right'>" + (u.id ? "Enregistrer" : "Créer") + "</button></div>";
+      '<label><input type="checkbox" data-k="actif"' + (u.actif === false ? "" : " checked") + "> Actif</label><button class='lnk' data-save style='grid-column:1/-1;text-align:right'>" + (u.id ? "Enregistrer" : "Créer") + "</button>" +
+      (u.id && !(WHO && u.id === WHO.id) ? "<button class='lnk' data-udel style='grid-column:1/-1;text-align:left;color:var(--warn)'>Supprimer ce compte…</button>" : "") + "</div>";
+    const ROLE = { admin: "Administrateur", responsable: "Responsable", salarie: "Salarié" };
     $("users").innerHTML = "<b>Comptes</b><div style='font-size:13px;color:var(--mut)'>Le rôle vaut pour tous les événements. L'affectation aux événements se fait dans « Événements ».</div>" +
-      (ADM.users || []).map(it).join("") + "<div class='sub'>Nouveau compte</div>" + it({ actif: true }) + "<div class='msg'>" + escH(ADM.msgU) + "</div>";
+      (ADM.users || []).map(u => fold("u" + u.id, "<span" + (u.actif ? "" : " style='color:var(--mut)'") + ">" + escH(u.nom) + "</span><small>" + ROLE[u.role] + (u.actif ? "" : " · inactif") + "</small>", it(u))).join("") +
+      fold("u-new", "<span class='add'>＋ Nouveau compte</span>", it({ actif: true }));
   }
 }
+for (const id of ["periodes", "users"]) $(id).addEventListener("toggle", e => { if (e.target.dataset && e.target.dataset.key) ADM.open[e.target.dataset.key] = e.target.open; }, true);
 $("periodes").addEventListener("click", async e => {
   const del = e.target.closest("[data-del]");
   if (del) {
@@ -522,19 +538,27 @@ $("periodes").addEventListener("click", async e => {
   b.disabled = true;
   try {
     const id = await rpc("ptg_evenement_save", { p_id: box.dataset.id ? +box.dataset.id : null, p_nom: v("nom").value, p_debut: v("debut").value || null, p_fin: v("fin").value || null, p_archive: v("archive").checked, p_equipe: equipe });
-    ADM.msgE = ""; document.activeElement.blur(); await loadAdmin(true); pull();
+    ADM.msgE = ""; if (!box.dataset.id) ADM.open["e-new"] = false; document.activeElement.blur(); await loadAdmin(true); pull();
     infoBox("Événement « " + escH(v("nom").value.trim()) + " » " + (box.dataset.id ? "enregistré" : "créé") + ".<br><span style='font-size:15px;color:var(--mut)'>Équipe : " + (equipe.length ? equipe.length + " personne" + (equipe.length > 1 ? "s" : "") : "personne") + ".</span>");
   } catch (x) { infoBox(escH(explain(x)), true); }
   finally { b.disabled = false; }
 });
 $("users").addEventListener("click", async e => {
+  const del = e.target.closest("[data-udel]");
+  if (del) {
+    const box = del.closest(".it"), id = +box.dataset.id, nom = box.querySelector('[data-k="nom"]').value;
+    return confirmBox("Supprimer le compte de <b>" + escH(nom) + "</b> ?<br><span style='font-size:15px;color:var(--mut)'>Impossible s'il a déjà des heures : il faut alors le désactiver.</span>", async () => {
+      try { await rpc("ptg_user_delete", { p_id: id }); delete ADM.open["u" + id]; await loadAdmin(true); pull(); infoBox("Compte de <b>" + escH(nom) + "</b> supprimé."); }
+      catch (x) { infoBox(escH(explain(x)), true); }
+    }, "Supprimer");
+  }
   const b = e.target.closest("[data-save]"); if (!b) return;
   const box = b.closest(".it"), v = k => box.querySelector('[data-k="' + k + '"]'), id = box.dataset.id ? +box.dataset.id : null, code = v("code").value.trim();
   b.disabled = true;
   try {
     await rpc("ptg_user_save", { p_id: id, p_new_code: code, p_nom: v("nom").value, p_role: v("role").value, p_actif: v("actif").checked });
     if (WHO && id === WHO.id && code !== CODE) { CODE = code; ls.set("ptg-code", CODE); }
-    ADM.msgU = ""; document.activeElement.blur(); await loadAdmin(true); pull();
+    ADM.msgU = ""; if (!id) ADM.open["u-new"] = false; document.activeElement.blur(); await loadAdmin(true); pull();
     infoBox("Compte de <b>" + escH(v("nom").value.trim()) + "</b> " + (id ? "enregistré" : "créé") + "." + (id ? "" : "<br><span style='font-size:15px;color:var(--mut)'>Pense à l'ajouter à l'équipe d'un événement.</span>"));
   } catch (x) { infoBox(escH(explain(x)), true); }
   finally { b.disabled = false; }
@@ -554,7 +578,7 @@ $("evsel").onchange = e => { EVT = +e.target.value; DATA = null; REAL = {}; if (
 // ---------- Navigation et rendu ----------
 function renderAll() {
   $("chips").innerHTML = P.map((p, i) => '<button class="chip' + (i === me ? " on" : "") + '" data-p="' + i + '">' + escH(p.nom) + (p.actif === false ? " (ancien)" : "") + (canPoint(p) || TEST ? "" : " 👁") + "</button>").join("");
-  $("chips").style.flexWrap = "wrap";
+  $("chips").style.flexWrap = "wrap"; $("chips").classList.toggle("hide", view === "admin");
   document.body.classList.toggle("ro", !TEST && !canEdit(cur()));
   if (view === "pointer") renderPointer(); if (view === "planning") renderPlanning(); if (view === "export") renderExport(); if (view === "admin") loadAdmin();
 }
