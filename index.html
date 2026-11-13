@@ -147,7 +147,7 @@ const CFG = window.POINTEUSE_CONFIG || {};
 let CODE = ""; try { CODE = localStorage.getItem("ptg-code") || ""; } catch (e) {}
 // Identité liée au code : { nom, role: admin | responsable | salarie, col: "B" | "F" | "J" | null }
 let WHO = null; try { WHO = JSON.parse(localStorage.getItem("ptg-who") || "null"); } catch (e) {}
-const seesAll = () => !WHO || WHO.role === "admin" || WHO.role === "responsable";
+const seesAll = () => !WHO || WHO.role === "admin";
 // rôle de la personne active sur une colonne (renvoyé par la base)
 const colRole = col => { const n = WHO && Array.isArray(WHO.noms) && WHO.noms.find(x => x.col === col); return n ? n.role : null; };
 // modifier les heures : admin partout ; responsable sur sa colonne et celles des salariés ; salarié jamais
@@ -156,7 +156,8 @@ const canEdit = pi => !WHO || WHO.role === "admin" || (WHO.role === "responsable
 const canPoint = pi => canEdit(pi) || (!!WHO && P[pi].start === WHO.col);
 const isSalarie = () => !!WHO && WHO.role === "salarie";
 const ownIdx = () => WHO && WHO.col ? P.findIndex(p => p.start === WHO.col) : -1;
-const visible = () => P.map((p, i) => i).filter(i => seesAll() || i === ownIdx());
+// colonnes visibles : admin = toutes ; responsable = la sienne + les salariés ; salarié = la sienne
+const visible = () => P.map((p, i) => i).filter(i => seesAll() || i === ownIdx() || (WHO.role === "responsable" && colRole(P[i].start) === "salarie"));
 function applyWho() {
   // prénoms venant de la base (table acces) : priorité sur config.js.
   // On repart toujours des prénoms de base, sinon un ancien nom (personne supprimée) resterait affiché.
