@@ -41,8 +41,9 @@ Chacun peut exporter **son détail** (ou celui d'une personne qu'il voit) en .xl
 | Onglet | Qui | Rôle |
 |---|---|---|
 | Pointer | tous | pointage personnel (l'admin peut pointer pour n'importe qui) ; affiche l'horaire prévu |
+| Planning | tous | horaires prévus de la semaine, jour par jour (salarié : lui ; responsable : lui + salariés ; admin : tous) |
 | Pointages | responsables, admin | corriger les heures réellement pointées |
-| Horaires | admin | saisir les horaires **prévus** (jusqu'à 2 créneaux par jour) |
+| Horaires | admin | saisir les horaires **prévus** (créneau unique ou fractionné) et copier une semaine |
 | Totaux | tous | totaux, détail dépliant, exports Excel |
 | Admin | admin | événements, équipes, comptes |
 
