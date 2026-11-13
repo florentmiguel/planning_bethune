@@ -1,60 +1,44 @@
-# Planning Béthune
+# Planning Événements — pointeuse mobile
 
-Page web pour téléphone qui sert de pointeuse au tableau de présence `Planning_Bethune_2026.xlsx` (Florent, Gugus, Virginie, du 27/11 au 28/12/2026).
+Pointage, signature, totaux et export Excel pour **plusieurs événements en parallèle** (marché de Noël, salons…), chacun avec ses dates et **son équipe**.
 
-- **Pointer** : arrivée et départ en un geste, à l'heure du téléphone. Un poste de nuit est rattaché au jour d'arrivée.
-- **Planning** : correction des heures, signature (texte « ✓ Prénom jj/mm hh:mm »).
-- **Totaux & Excel** : totaux par semaine, par mois et général, puis téléchargement du fichier Excel d'origine rempli (mise en forme, formules et tableau conservés).
+Hébergement : GitHub Pages. Base de données : Supabase (PostgreSQL).
 
-Hébergement : GitHub Pages (gratuit). Base de données : Supabase, PostgreSQL (offre gratuite).
+## Fichiers
+| Fichier | Rôle |
+|---|---|
+| `index.html` | la page |
+| `xlsx.js` | génération du fichier Excel (planning complet d'un événement ou détail d'une personne) |
+| `config.js` | adresse et clé **Publishable** Supabase |
+| `supabase/schema.sql` | installation neuve (tables + fonctions + premiers comptes + premier événement) |
+| `supabase/migration-v3.sql` | passage depuis la version « colonnes B/F/J » — **une seule fois** |
+| `supabase/fonctions.sql` | fonctions seules (à relancer après une mise à jour des fonctions) |
 
-## Mise en place (environ 15 min, une seule fois)
+## Installation neuve
+1. Supabase > SQL Editor : coller `supabase/schema.sql`, remplacer les 4 codes `CODE-…-A-CHANGER`, puis **Run**.
+2. Renseigner `config.js` : Project URL (`https://xxxx.supabase.co`) et clé **Publishable** (`sb_publishable_…`).
+3. Envoyer le dossier sur GitHub, puis Settings > Pages > branche `main`, dossier `/ (root)`.
 
-### 1. Base de données Supabase
-1. Crée un compte sur https://supabase.com, puis un projet. Choisis la région Europe (Paris ou Francfort).
-2. Va dans **SQL Editor**, puis **New query**. Colle le contenu de `supabase/schema.sql`.
-3. **Remplace les 4 codes `CODE-…-A-CHANGER`** (en bas du fichier) par un code personnel pour chacun (8 caractères ou plus), puis lance **Run**.
-4. Dans **Project Settings**, puis **API**, copie le **Project URL** et la clé **anon public**.
+## Mise à jour depuis la version « colonnes B/F/J »
+Supabase > SQL Editor : coller `supabase/migration-v3.sql` > **Run** (une seule fois). Comptes, codes et pointages sont conservés ; l'événement « Marché de Noël de Béthune 2026 » est créé avec l'équipe actuelle. Remplacer ensuite `index.html` et `xlsx.js` sur GitHub et supprimer `planning.js`.
 
-### 2. Configuration
-Ouvre `config.js` et colle l'URL et la clé anon à la place de `VOTRE-PROJET` et `VOTRE-CLE-ANON`.
+## Droits (rôle global, valable pour tous les événements)
+| Rôle | Événements | Voit | Pointe / signe | Corrige les heures | Administration |
+|---|---|---|---|---|---|
+| admin | tous | tout le monde | tout le monde | tout le monde | comptes, événements, équipes, Excel complet |
+| responsable | ceux de ses équipes | lui + les salariés | lui + les salariés | lui + les salariés | non |
+| salarié | ceux de ses équipes | lui seul | lui seul, **heure du serveur** | non | non |
 
-Pour changer un prénom (par exemple remplacer « Gugus » après le recrutement), modifie la liste `prenoms` dans `config.js`. Les pointages déjà faits sont conservés.
+Chacun peut exporter **son détail** (ou celui d'une personne qu'il voit) en .xlsx.
 
-### 3. Mise en ligne sur GitHub Pages
-1. Pousse ce dossier dans un dépôt GitHub.
-   Nomme le dépôt **`planning-bethune`** : l'adresse sera alors `https://<ton-compte>.github.io/planning-bethune/`.
-2. Dans le dépôt, va dans **Settings**, puis **Pages**. Choisis **Source : Deploy from a branch**, la branche **main**, le dossier **/ (root)**.
-3. L'adresse s'affiche. Pour avoir exactement `https://planning-bethune.github.io`, crée plutôt un compte (ou une organisation) GitHub nommé `planning-bethune` et un dépôt nommé `planning-bethune.github.io`.
+## Administration (onglet Totaux, administrateur)
+- **Événements** : nom, date de début, date de fin (400 jours max.), équipe (cases à cocher) et **place** de chacun (ordre des colonnes dans l'Excel), archivé.
+- **Comptes** : prénom, code (8 caractères min.), rôle, actif.
+- Les heures sont rattachées à la personne **et** à l'événement : une même personne peut travailler sur deux événements, ses heures sont séparées.
+- Si plusieurs événements sont visibles, un menu en haut de la page permet de choisir l'événement.
 
-### 4. Sur les téléphones
-Chacun ouvre l'adresse et saisit son code personnel une fois (il est ensuite mémorisé). Ajoute la page à l'écran d'accueil (sur iPhone : Partager, puis « Sur l'écran d'accueil ») pour l'avoir comme une appli.
-
-## Accès (un code personnel par personne)
-| Personne | Rôle | Voit | Modifie | Excel |
-|---|---|---|---|---|
-| Florent | admin | tout | tout | oui |
-| Virginie | admin | tout | tout | oui |
-| Anne-Claire (employeur) | admin | tout | tout | oui |
-| Poste en recrutement | salarie | son planning | son planning | non |
-
-Le rôle `responsable` existe aussi : il voit tout et peut télécharger l'Excel, mais ne modifie que sa propre colonne.
-
-**Arrivée de la nouvelle recrue.** Dans Supabase, rubrique SQL Editor :
-```sql
-update acces set actif = false where nom = 'Gugus';
-insert into acces (code, nom, role, col) values ('SON-CODE', 'Prénom', 'salarie', 'F');
-```
-Remplace aussi « Gugus » dans `prenoms` (fichier `config.js`). Ses pointages restent dans la colonne F.
-
-**Retirer un accès :** `update acces set actif = false where nom = '…';`
+## Excel
+Généré par l'appli : une ligne par jour, un bloc Début / Fin / Durée / Signature par personne, totaux par semaine, par mois et général (formules Excel), en-têtes figés, impression A4 paysage sur la largeur d'une page.
 
 ## Sécurité
-- Les tables sont fermées : la clé publique ne donne accès qu'aux fonctions `ptg_me`, `ptg_list` et `ptg_upsert`, qui vérifient le code et les droits côté base. Un salarié ne peut donc ni lire ni modifier le planning des autres, même en bricolant la page.
-- Toute modification est tracée avec son auteur dans `pointages_log`.
-
-## Hors connexion
-Les pointages faits sans réseau restent sur le téléphone et sont envoyés automatiquement au retour du réseau.
-
-## Nouvelle période
-Le modèle Excel est dans `planning.js` (généré depuis le `.xlsx`). Pour un nouveau planning, il faut régénérer ce fichier à partir du nouveau tableau.
+Tables fermées (RLS sans politique) ; la clé publique ne donne accès qu'aux fonctions `ptg_*`, qui vérifient le code, l'événement et les droits. Toute modification est tracée avec son auteur dans `pointages_log`.

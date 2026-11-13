@@ -70,6 +70,14 @@ body.test #testbar{display:block}
 .adm .sub{margin-top:8px;font-weight:600;font-size:14px;color:var(--mut)}
 #detail table td,#detail table th{padding:6px 3px}
 #sum th,#sum td{white-space:nowrap;padding:8px 6px}
+#detail summary{display:flex;justify-content:space-between;align-items:center;gap:8px;cursor:pointer;list-style:none;padding:6px 0;font-variant-numeric:tabular-nums}
+#detail summary::-webkit-details-marker{display:none}
+#detail summary span::before{content:"▸";display:inline-block;width:16px;color:var(--mut);transition:transform .15s}
+#detail details[open]>summary span::before{transform:rotate(90deg)}
+#dt>summary{font-weight:700;font-size:16px}
+.wkd{border-top:1px solid var(--line)}.wkd>summary{font-weight:600}.wkd small{color:var(--mut);font-weight:400}
+.wkd table{margin:2px 0 8px}
+.tline{display:flex;justify-content:space-between;border-top:1px solid var(--line);padding:8px 0 8px 16px;font-weight:700;font-variant-numeric:tabular-nums}
 .adm label.full{grid-column:1/-1}.adm label.full input{flex:1;width:auto}
 </style>
 </head>
@@ -107,10 +115,13 @@ body.test #testbar{display:block}
     <div id="admin" class="hide">
       <button class="big" id="exp">Télécharger le planning complet (.xlsx)</button>
       <div class="msg" id="emsg">Toutes les personnes de l'événement, avec formules et totaux.</div>
-      <div class="card adm" id="periodes"></div>
-      <div class="card adm" id="users"></div>
     </div>
     <div style="text-align:center;margin-top:18px"><button class="lnk" id="logout">Changer de code / se déconnecter</button></div>
+  </section>
+
+  <section id="v-admin" class="hide">
+    <div class="card adm" id="periodes"></div>
+    <div class="card adm" id="users"></div>
   </section>
 </div>
 
@@ -118,6 +129,7 @@ body.test #testbar{display:block}
   <button data-v="pointer" class="on"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>Pointer</button>
   <button data-v="planning"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>Planning</button>
   <button data-v="export"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12m0 0l-4-4m4 4l4-4M4 17v3h16v-3"/></svg>Totaux</button>
+  <button data-v="admin" class="hide"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.6-3.6 3.3-5.5 6.5-5.5s5.9 1.9 6.5 5.5"/><path d="M17 8h5M19.5 5.5v5"/></svg>Admin</button>
 </nav>
 
 <div class="modal hide" id="login"><div class="card"><div style="font-size:18px;font-weight:700;margin-bottom:8px">Code d'accès</div><div style="color:var(--mut);font-size:14px">Saisis ton code personnel. Il est mémorisé sur ce téléphone.</div><input id="lcode" type="password" autocomplete="current-password" style="width:100%;font:inherit;font-size:18px;padding:12px;margin-top:12px;border:1px solid var(--line);border-radius:12px;background:var(--bg);color:var(--ink)"><div class="msg" id="lmsg"></div><div class="row2"><button class="pri" id="lok">Valider</button></div></div></div>
@@ -207,6 +219,8 @@ function applyWho() {
   document.querySelector('nav button[data-v="planning"]').classList.toggle("hide", sal);
   if (sal && view === "planning") go("pointer");
   $("admin").classList.toggle("hide", role() !== "admin");
+  document.querySelector('nav button[data-v="admin"]').classList.toggle("hide", role() !== "admin");
+  if (role() !== "admin" && view === "admin") go("pointer");
   planKey = ""; renderAll();
 }
 
@@ -295,11 +309,19 @@ $("logout").onclick = () => {
     applyWho(); askCode(false);
   });
 };
-function confirmBox(html, ok) {
+function confirmBox(html, ok, label) {
   $("mtxt").innerHTML = '<div style="font-size:18px;text-align:center;padding:6px 0">' + html + "</div>";
-  $("modal").classList.remove("hide");
+  $("modal").classList.remove("hide"); $("mno").classList.remove("hide");
+  $("myes").textContent = label || "Confirmer"; $("myes").style.background = label === "Supprimer" ? "var(--warn)" : "";
   $("mno").onclick = () => $("modal").classList.add("hide");
   $("myes").onclick = () => { $("modal").classList.add("hide"); ok(); };
+}
+// message simple avec un bouton OK (résultat d'un enregistrement, erreur…)
+function infoBox(html, isErr) {
+  $("mtxt").innerHTML = '<div style="font-size:18px;text-align:center;padding:6px 0' + (isErr ? ";color:var(--warn)" : "") + '">' + html + "</div>";
+  $("modal").classList.remove("hide"); $("mno").classList.add("hide");
+  $("myes").textContent = "OK"; $("myes").style.background = "";
+  $("myes").onclick = () => $("modal").classList.add("hide");
 }
 
 // ---------- Pointer ----------
@@ -404,24 +426,37 @@ function renderExport() {
     $("sum").innerHTML = h;
     renderDetail();
   }
-  if (role() === "admin") { loadAdmin(); }
+
 }
+// Détail jour par jour, replié : un menu dépliant général, puis une ligne dépliante par semaine
+const FOLD = { detail: false, weeks: {} };
 function renderDetail() {
   const p = cur(); if (!p) { $("detail").innerHTML = ""; return; }
-  const mine = canPoint(p), today = isoOf(NOW());
-  let h = "<b>Détail — " + escH(p.nom) + "</b><table style='margin-top:8px'><tr><th>Jour</th><th>Arr.</th><th>Dép.</th><th>Durée</th><th>Sig.</th></tr>";
+  const mine = canPoint(p), today = isoOf(NOW()), all = DAYS.map(d => d.iso);
+  const line = iso => {
+    const r = rec(iso), dh = dayHours(r.start, r.end), signable = mine && r.start && r.end && !r.sign && iso <= today;
+    return "<tr><td style='text-transform:capitalize'>" + short(rowByIso(iso).label) + "</td><td>" + (r.start || "") + "</td><td>" + (r.end || "") + "</td><td>" + (dh == null ? "" : fmtH(dh)) + "</td><td>" +
+      (r.sign ? "<span style='color:var(--acc)' title='" + escH(r.sign) + "'>✓</span>" : signable ? "<button class='lnk' style='padding:0' data-sig='" + iso + "'>Signer</button>" : "") + "</td></tr>";
+  };
+  let h = "<details id='dt'" + (FOLD.detail ? " open" : "") + "><summary><span>Détail jour par jour — " + escH(p.nom) + "</span><b>" + fmtH(sumHours(recs, p.id, all)) + "</b></summary>";
   for (const x of ROWS) {
-    if (x.kind === "day") {
-      const r = rec(x.iso), dh = dayHours(r.start, r.end), signable = mine && r.start && r.end && !r.sign && x.iso <= today;
-      h += "<tr><td style='text-transform:capitalize'>" + short(x.label) + "</td><td>" + (r.start || "") + "</td><td>" + (r.end || "") + "</td><td>" + (dh == null ? "" : fmtH(dh)) + "</td><td>" +
-        (r.sign ? "<span style='color:var(--acc)'>✓</span>" : signable ? "<button class='lnk' style='padding:0' data-sig='" + x.iso + "'>Signer</button>" : "") + "</td></tr>";
-    } else {
-      const days = x.kind === "total" ? DAYS.map(d => d.iso) : x.days;
-      h += "<tr class='strong'><td>" + nice(x.label) + "</td><td></td><td></td><td>" + fmtH(sumHours(recs, p.id, days)) + "</td><td></td></tr>";
+    if (x.kind === "week") {
+      // semaine en cours ouverte par défaut
+      const open = x.label in FOLD.weeks ? FOLD.weeks[x.label] : x.days.includes(today);
+      h += "<details class='wkd' data-w='" + escH(x.label) + "'" + (open ? " open" : "") + "><summary><span>" + nice(x.label) + " <small>" + ddmm(dateOf(x.days[0])) + (x.days.length > 1 ? "–" + ddmm(dateOf(x.days[x.days.length - 1])) : "") + "</small></span><b>" + fmtH(sumHours(recs, p.id, x.days)) + "</b></summary>" +
+        "<table><tr><th>Jour</th><th>Arr.</th><th>Dép.</th><th>Durée</th><th>Sig.</th></tr>" + x.days.map(line).join("") + "</table></details>";
+    } else if (x.kind !== "day") {
+      h += "<div class='tline'><span>" + nice(x.label) + "</span><b>" + fmtH(sumHours(recs, p.id, x.kind === "total" ? all : x.days)) + "</b></div>";
     }
   }
-  $("detail").innerHTML = h + "</table><button class='big' id='expd' style='font-size:17px;padding:16px'>Exporter le détail (.xlsx)</button>";
+  $("detail").innerHTML = h + "</details><button class='big' id='expd' style='font-size:17px;padding:16px'>Exporter le détail (.xlsx)</button>";
 }
+// mémorise ce qui est ouvert, pour que le rafraîchissement automatique ne referme rien
+$("detail").addEventListener("toggle", e => {
+  const d = e.target;
+  if (d.id === "dt") FOLD.detail = d.open;
+  else if (d.dataset && d.dataset.w) FOLD.weeks[d.dataset.w] = d.open;
+}, true);
 $("detail").addEventListener("click", e => {
   const b = e.target.closest("button"); if (!b) return; const p = cur();
   if (b.id === "expd") return saveFile(buildPlanningXlsx(recs, PER(), [p]), "Heures_" + fileName(p.nom) + "_" + fileName(PER().libelle) + ".xlsx");
@@ -452,7 +487,8 @@ function renderAdmin() {
         '<label class="full">Du <input type="date" data-k="debut" value="' + escH(q.debut) + '"></label><label class="full">au <input type="date" data-k="fin" value="' + escH(q.fin) + '"></label>' +
         '<div style="grid-column:1/-1;font-size:13px;color:var(--mut)">Équipe (case cochée) et place dans l\'Excel :</div>' +
         users.map(u => '<label class="full eq" data-uid="' + u.id + '"><input type="checkbox" data-k="in"' + (u.id in eq ? " checked" : "") + '> <span style="flex:1">' + escH(u.nom) + ' <small style="color:var(--mut)">' + ({ admin: "admin", responsable: "resp.", salarie: "salarié" })[u.role] + '</small></span><input type="number" min="1" max="99" data-k="ordre" placeholder="place" value="' + escH(eq[u.id]) + '" style="max-width:80px"></label>').join("") +
-        '<label><input type="checkbox" data-k="archive"' + (q.archive ? " checked" : "") + "> Archivé</label><button class='lnk' data-save style='text-align:right'>" + (q.id ? "Enregistrer" : "Créer") + "</button></div>";
+        '<label><input type="checkbox" data-k="archive"' + (q.archive ? " checked" : "") + "> Archivé</label><button class='lnk' data-save style='text-align:right'>" + (q.id ? "Enregistrer" : "Créer") + "</button>" +
+        (q.id ? "<button class='lnk' data-del style='grid-column:1/-1;text-align:left;color:var(--warn)'>Supprimer cet événement…</button>" : "") + "</div>";
     };
     $("periodes").innerHTML = "<b>Événements</b><div style='font-size:13px;color:var(--mut)'>Plusieurs événements peuvent avoir lieu en même temps. Chacun ne voit que ceux de son équipe ; un événement archivé disparaît pour les non-admins.</div>" +
       (ADM.evts || []).map(it).join("") + "<div class='sub'>Nouvel événement</div>" + it({}) + "<div class='msg'>" + escH(ADM.msgE) + "</div>";
@@ -466,6 +502,19 @@ function renderAdmin() {
   }
 }
 $("periodes").addEventListener("click", async e => {
+  const del = e.target.closest("[data-del]");
+  if (del) {
+    const box = del.closest(".it"), id = +box.dataset.id, nom = box.querySelector('[data-k="nom"]').value;
+    const ev = (ADM.evts || []).find(x => x.id === id);
+    return confirmBox("Supprimer définitivement <b>« " + escH(nom) + " »</b> ?<br><span style='font-size:15px;color:var(--warn)'>Toutes les heures et signatures de cet événement seront effacées. Pense à télécharger l'Excel avant.</span><br><span style='font-size:14px;color:var(--mut)'>Pour seulement le masquer, coche plutôt « Archivé ».</span>", async () => {
+      try {
+        const n = await rpc("ptg_evenement_delete", { p_id: id });
+        if (EVT === id) { EVT = 0; DATA = null; REAL = {}; if (!TEST) recs = REAL; saveLocal(); }
+        ADM.msgE = ""; await loadAdmin(true); pulling = false; pull();
+        infoBox("Événement « " + escH(nom) + " » supprimé" + (n ? " (" + n + " journée" + (n > 1 ? "s" : "") + " de pointage effacée" + (n > 1 ? "s" : "") + ")" : "") + ".");
+      } catch (x) { infoBox(escH(explain(x)), true); }
+    }, "Supprimer");
+  }
   const b = e.target.closest("[data-save]"); if (!b) return;
   const box = b.closest(".it"), v = k => box.querySelector('[data-k="' + k + '"]');
   const equipe = [...box.querySelectorAll(".eq")].filter(l => l.querySelector('[data-k="in"]').checked)
@@ -473,8 +522,9 @@ $("periodes").addEventListener("click", async e => {
   b.disabled = true;
   try {
     const id = await rpc("ptg_evenement_save", { p_id: box.dataset.id ? +box.dataset.id : null, p_nom: v("nom").value, p_debut: v("debut").value || null, p_fin: v("fin").value || null, p_archive: v("archive").checked, p_equipe: equipe });
-    ADM.msgE = "Enregistré."; document.activeElement.blur(); await loadAdmin(true); pull();
-  } catch (x) { ADM.msgE = explain(x); renderAdmin(); }
+    ADM.msgE = ""; document.activeElement.blur(); await loadAdmin(true); pull();
+    infoBox("Événement « " + escH(v("nom").value.trim()) + " » " + (box.dataset.id ? "enregistré" : "créé") + ".<br><span style='font-size:15px;color:var(--mut)'>Équipe : " + (equipe.length ? equipe.length + " personne" + (equipe.length > 1 ? "s" : "") : "personne") + ".</span>");
+  } catch (x) { infoBox(escH(explain(x)), true); }
   finally { b.disabled = false; }
 });
 $("users").addEventListener("click", async e => {
@@ -484,8 +534,9 @@ $("users").addEventListener("click", async e => {
   try {
     await rpc("ptg_user_save", { p_id: id, p_new_code: code, p_nom: v("nom").value, p_role: v("role").value, p_actif: v("actif").checked });
     if (WHO && id === WHO.id && code !== CODE) { CODE = code; ls.set("ptg-code", CODE); }
-    ADM.msgU = "Enregistré."; document.activeElement.blur(); await loadAdmin(true); pull();
-  } catch (x) { ADM.msgU = explain(x); renderAdmin(); }
+    ADM.msgU = ""; document.activeElement.blur(); await loadAdmin(true); pull();
+    infoBox("Compte de <b>" + escH(v("nom").value.trim()) + "</b> " + (id ? "enregistré" : "créé") + "." + (id ? "" : "<br><span style='font-size:15px;color:var(--mut)'>Pense à l'ajouter à l'équipe d'un événement.</span>"));
+  } catch (x) { infoBox(escH(explain(x)), true); }
   finally { b.disabled = false; }
 });
 
@@ -505,13 +556,13 @@ function renderAll() {
   $("chips").innerHTML = P.map((p, i) => '<button class="chip' + (i === me ? " on" : "") + '" data-p="' + i + '">' + escH(p.nom) + (p.actif === false ? " (ancien)" : "") + (canPoint(p) || TEST ? "" : " 👁") + "</button>").join("");
   $("chips").style.flexWrap = "wrap";
   document.body.classList.toggle("ro", !TEST && !canEdit(cur()));
-  if (view === "pointer") renderPointer(); if (view === "planning") renderPlanning(); if (view === "export") renderExport();
+  if (view === "pointer") renderPointer(); if (view === "planning") renderPlanning(); if (view === "export") renderExport(); if (view === "admin") loadAdmin();
 }
 $("chips").onclick = e => { const b = e.target.closest("[data-p]"); if (!b) return; me = +b.dataset.p; ls.set("ptg-me-uid", P[me].id); renderAll(); };
 function go(v) {
   view = v;
   for (const x of document.querySelectorAll("nav button")) x.classList.toggle("on", x.dataset.v === v);
-  for (const s of ["pointer", "planning", "export"]) $("v-" + s).classList.toggle("hide", s !== v);
+  for (const s of ["pointer", "planning", "export", "admin"]) $("v-" + s).classList.toggle("hide", s !== v);
   renderAll();
   if (v === "planning") { const t = $("d-" + isoOf(NOW())); if (t) t.scrollIntoView({ block: "center" }); }
 }
