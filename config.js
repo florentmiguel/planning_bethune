@@ -7,5 +7,5 @@ window.POINTEUSE_CONFIG = {
   supabaseAnonKey: "sb_publishable_LQqnsi4yse-ntmQ4_jiSDA_qrPXNwnI",
   // Prénoms dans l'ordre des colonnes de l'Excel (Début en B, F, J).
   // Modifie-les ici : la page et l'en-tête de l'Excel téléchargé suivent, sans perte de pointages.
-  prenoms: ["Florent", "--", "Virginie"]
+  prenoms: ["Florent", "---", "Virginie"]
 };
