@@ -4,4 +4,5 @@
 // par le code d'accès vérifié côté base (voir supabase/schema.sql).
 window.POINTEUSE_CONFIG = {
   supabaseUrl: "https://sshhezehniavpaowcaxj.supabase.co",
-  supabaseAnonKey: "sb_publishable_LQqnsi4yse-ntmQ4_jiSDA_qrPXNwnI",
+  supabaseAnonKey: "sb_publishable_LQqnsi4yse-ntmQ4_jiSDA_qrPXNwnI"
+};
