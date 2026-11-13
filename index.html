@@ -9,7 +9,7 @@
 <meta name="theme-color" content="#1f6f4a">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icon.svg">
-<script src="config.js"></script>
+<script>document.write('<script src="config.js?' + Date.now() + '"><\/script>');</script>
 <script src="planning.js"></script>
 <script src="xlsx.js"></script>
 <style>
@@ -151,8 +151,8 @@ const ownIdx = () => WHO && WHO.col ? P.findIndex(p => p.start === WHO.col) : -1
 const visible = () => P.map((p, i) => i).filter(i => seesAll() || i === ownIdx());
 function applyWho() {
   // prénoms venant de la base (table acces) : priorité sur config.js.
-  // On repart toujours des prénoms de base, sinon un ancien nom (personne supprimée) restaerait affiché.
-  for (const p of P) {if (p.base == null) p.base = p.name; p.name = (WHO && Array.isArray(WHO.noms)) ? "Poste vacant" : p.base; }
+  // On repart toujours des prénoms de base, sinon un ancien nom (personne supprimée) resterait affiché.
+  for (const p of P) { if (p.base == null) p.base = p.name; p.name = (WHO && Array.isArray(WHO.noms)) ? "Poste vacant" : p.base; }
   if (WHO && Array.isArray(WHO.noms)) for (const n of WHO.noms) { const p = P.find(q => q.start === n.col); if (p && n.nom) p.name = n.nom; }
   const v = visible();
   let chosen = false; try { chosen = !!localStorage.getItem("ptg-me-set"); } catch (e) {}
@@ -231,9 +231,8 @@ async function pull() {
   } catch (e) { if (e.badCode) return askCode(true); setSync("local", "Hors ligne — données de ce téléphone affichées"); }
 }
 function askCode(bad) {
-  // code refusé (acces supprimé ou désactivé) : on oublie l'identité gardée sur le téléphone
-  if (bad) { WHO = null, CODE = ""; try { localStorage.removeItem("ptg-who"); localStorage.removeItem("ptg-code"); } 
-  catch (e) {} applyWho();} $("login").classList.remove("hide");
+  // code refusé (accès supprimé ou désactivé) : on oublie l'identité gardée sur ce téléphone
+  if (bad) { WHO = null; CODE = ""; try { localStorage.removeItem("ptg-who"); localStorage.removeItem("ptg-code"); } catch (e) {} applyWho(); }
   $("login").classList.remove("hide");
   $("lmsg").textContent = bad ? "Code incorrect." : "";
 }
